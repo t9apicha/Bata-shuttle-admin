@@ -100,18 +100,38 @@ export default function Map({ stops, routes }: MapProps) {
     }
 
     // =====================================
-    // 2. ปักหมุดจุดจอดปกติ (ดึงจากตาราง stops)
+    // 2. ปักหมุดจุดจอดแบบ ป้ายวงกลมมีชื่อตึก
     // =====================================
-    const defaultIcon = L.icon({
-      iconUrl: "https://unpkg.com/leaflet@1.7.1/dist/images/marker-icon.png",
-      shadowUrl: "https://unpkg.com/leaflet@1.7.1/dist/images/marker-shadow.png",
-      iconSize: [25, 41],
-      iconAnchor: [12, 41],
-    });
-
     stops.forEach((stop) => {
       if (stop.latitude && stop.longitude && stop.latitude !== 0) {
-        L.marker([stop.latitude, stop.longitude], { icon: defaultIcon })
+        
+        // สร้างไอคอนเป็น HTML วงกลม พร้อมดึงชื่อป้าย (stop.name) มาแสดง
+        const customStopIcon = L.divIcon({
+          className: "custom-stop-marker",
+          html: `<div style="
+            background-color: white;
+            border: 3px solid #3B82F6; /* สีขอบวงกลม (สีฟ้า) */
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 10px; /* ขนาดตัวอักษร */
+            color: #1E3A8A;
+            box-shadow: 0px 3px 6px rgba(0,0,0,0.3);
+            text-align: center;
+            line-height: 1.1;
+            padding: 2px;
+          ">
+            ${stop.name}
+          </div>`,
+          iconSize: [50, 50],
+          iconAnchor: [25, 25], // จัดให้จุดกึ่งกลางของวงกลมปักตรงพิกัดพอดี
+        });
+
+        L.marker([stop.latitude, stop.longitude], { icon: customStopIcon })
           .addTo(map)
           .bindPopup(`<b>${stop.name}</b><br/>Code: ${stop.code}`);
       }
