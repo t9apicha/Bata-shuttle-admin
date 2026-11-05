@@ -9,10 +9,10 @@ export default function Sidebar() {
 
   return (
     <>
-      {/* ปุ่ม Hamburger (3 ขีด) แสดงเฉพาะบนจอมือถือ */}
+      {/* ปุ่ม Hamburger (3 ขีด) แสดงเฉพาะบนจอมือถือ - ตั้งค่า z-[60] ให้ลอยอยู่เหนือทุกสิ่ง */}
       <button
         onClick={() => setIsOpen(true)}
-        className="md:hidden fixed top-4 left-4 z-40 p-2 bg-white text-gray-800 rounded-lg shadow-md border border-gray-200"
+        className="md:hidden fixed top-4 left-4 z-[60] p-2 bg-white text-gray-800 rounded-lg shadow-lg border border-gray-200"
       >
         <Menu className="w-6 h-6" />
       </button>
@@ -20,7 +20,7 @@ export default function Sidebar() {
       {/* ฉากหลังสีดำจางๆ เวลาเปิดเมนู */}
       {isOpen && (
         <div
-          className="md:hidden fixed inset-0 bg-black/40 z-40"
+          className="md:hidden fixed inset-0 bg-black/50 z-40"
           onClick={() => setIsOpen(false)}
         />
       )}
@@ -32,8 +32,8 @@ export default function Sidebar() {
         }`}
       >
         <div>
-          <div className="flex items-center justify-between mb-6">
-            <div className="flex items-center gap-3 px-3 py-4">
+          <div className="flex items-center justify-between mb-6 pt-12 md:pt-0">
+            <div className="flex items-center gap-3 px-3">
               <div className="bg-blue-600 p-2 rounded-xl text-white">
                 <Bus className="w-6 h-6" />
               </div>
@@ -45,16 +45,17 @@ export default function Sidebar() {
             {/* ปุ่มกากบาทปิดเมนู */}
             <button 
               onClick={() => setIsOpen(false)} 
-              className="md:hidden p-2 text-gray-500 hover:bg-gray-100 rounded-lg"
+              className="md:hidden absolute top-4 right-4 p-2 text-gray-500 hover:bg-gray-100 rounded-lg"
             >
               <X className="w-5 h-5" />
             </button>
           </div>
 
           <nav className="space-y-1">
-            <Link href="/tracker" onClick={() => setIsOpen(false)} className="flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-gray-700 hover:bg-blue-50 hover:text-blue-600 transition-colors">
-          <Navigation className="w-5 h-5" /> GPS Tracker
-        </Link>
+            {/* ปุ่มกลับหน้า Dashboard */}
+            <Link href="/" onClick={() => setIsOpen(false)} className="flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-gray-700 hover:bg-blue-50 hover:text-blue-600 transition-colors">
+              <LayoutDashboard className="w-5 h-5" /> Dashboard
+            </Link>
             <Link href="/vehicles" onClick={() => setIsOpen(false)} className="flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-gray-700 hover:bg-blue-50 hover:text-blue-600 transition-colors">
               <Bus className="w-5 h-5" /> Vehicles
             </Link>
@@ -63,6 +64,11 @@ export default function Sidebar() {
             </Link>
             <Link href="/stops" onClick={() => setIsOpen(false)} className="flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-gray-700 hover:bg-blue-50 hover:text-blue-600 transition-colors">
               <MapPin className="w-5 h-5" /> Stops
+            </Link>
+            
+            {/* ปุ่มไปหน้ากดส่ง GPS */}
+            <Link href="/tracker" onClick={() => setIsOpen(false)} className="flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 transition-colors border border-blue-100">
+              <Navigation className="w-5 h-5" /> GPS Tracker (คนขับ)
             </Link>
           </nav>
         </div>

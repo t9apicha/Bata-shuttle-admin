@@ -6,24 +6,24 @@ import "leaflet/dist/leaflet.css";
 
 export default function TrackerPage() {
   const [isTracking, setIsTracking] = useState(false);
-  // ตั้งค่าเริ่มต้นพิกัดให้เป็นแถวๆ ม.รังสิต เพื่อให้แผนที่ไม่ไปโผล่กลางทะเลก่อนที่ GPS จะจับได้
   const [coords, setCoords] = useState({ lat: 13.965, lng: 100.587 }); 
   const [watchId, setWatchId] = useState<number | null>(null);
+  
+  // ตัวแปรใหม่: เอาไว้แสดงสถานะบนหน้าจอว่าเข้า Supabase จริงไหม
+  const [syncStatus, setSyncStatus] = useState<string>("รอการเริ่มต้น..."); 
 
   const mapRef = useRef<L.Map | null>(null);
   const markerRef = useRef<L.Marker | null>(null);
   const mapContainer = useRef<HTMLDivElement>(null);
 
-  // 1. สร้างแผนที่เมื่อเปิดหน้านี้
+  // 1. สร้างแผนที่
   useEffect(() => {
     if (typeof window !== "undefined" && mapContainer.current && !mapRef.current) {
-      // สร้างแผนที่
       const map = L.map(mapContainer.current).setView([coords.lat, coords.lng], 16);
       L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
         maxZoom: 19,
       }).addTo(map);
 
-      // สร้างหมุดรูปวงกลมสำหรับแทนตัวรถบัส
       const busIcon = L.divIcon({
         className: "custom-bus-marker",
         html: `<div style="background-color: #EF4444; color: white; width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 20px; border: 3px solid white; box-shadow: 0 3px 6px rgba(0,0,0,0.3);">🚌</div>`,
@@ -31,7 +31,6 @@ export default function TrackerPage() {
         iconAnchor: [20, 20],
       });
 
-      // ปักหมุดลงแผนที่
       const marker = L.marker([coords.lat, coords.lng], { icon: busIcon }).addTo(map);
 
       mapRef.current = map;
@@ -39,7 +38,6 @@ export default function TrackerPage() {
     }
 
     return () => {
-      // ล้างข้อมูลแผนที่เมื่อปิดหน้าเว็บ
       if (mapRef.current) {
         mapRef.current.remove();
         mapRef.current = null;
@@ -47,15 +45,16 @@ export default function TrackerPage() {
     };
   }, []);
 
-  // 2. อัปเดตตำแหน่งหมุดบนแผนที่ เมื่อ GPS (coords) มีการเปลี่ยนแปลง
+  // 2. อัปเดตหมุดบนแผนที่
   useEffect(() => {
     if (mapRef.current && markerRef.current && isTracking) {
       const newLatLng = new L.LatLng(coords.lat, coords.lng);
-      markerRef.current.setLatLng(newLatLng); // เลื่อนหมุด
-      mapRef.current.setView(newLatLng, 17);  // เลื่อนกล้องแผนที่ตาม
+      markerRef.current.setLatLng(newLatLng); 
+      mapRef.current.setView(newLatLng, 17);  
     }
   }, [coords, isTracking]);
 
+  // 3. ฟังก์ชันเริ่มจับ GPS และส่งเข้า Supabase
   const startTracking = () => {
     if (!navigator.geolocation) {
       alert("อุปกรณ์นี้ไม่รองรับการระบุตำแหน่ง");
@@ -63,34 +62,53 @@ export default function TrackerPage() {
     }
 
     setIsTracking(true);
+    setSyncStatus("กำลังค้นหาสัญญาณ GPS...");
 
-    // เก็บ ID ของการติดตามไว้ เพื่อให้ยกเลิกได้ทีหลัง
     const id = navigator.geolocation.watchPosition(
       async (position) => {
         const { latitude, longitude } = position.coords;
         setCoords({ lat: latitude, lng: longitude });
+        setSyncStatus("สัญญาณ GPS อัปเดต กำลังส่งเข้าฐานข้อมูล...");
 
-        // ส่งพิกัดใหม่ไปอัปเดตที่ตาราง vehicles (สมมติว่าอัปเดตรถคันที่ id = 1)
-        const { error } = await supabase
-          .from("vehicles")
-          .update({ latitude: latitude, longitude: longitude })
-          .eq("id", 1); 
+        try {
+          // ใช้ .select() ต่อท้ายเพื่อให้ Supabase ตอบกลับมาว่าอัปเดตสำเร็จกี่บรรทัด
+          const { data, error } = await supabase
+            .from("vehicles")
+            .update({ latitude: latitude, longitude: longitude })
+            .eq("id", 1)
+            .select(); 
 
-        if (error) console.error("Error updating GPS:", error);
+          if (error) {
+            console.error("Supabase Error:", error);
+            setSyncStatus(`❌ บันทึกไม่สำเร็จ: ${error.message}`);
+          } else if (data && data.length === 0) {
+            setSyncStatus("⚠️ เชื่อมต่อได้ แต่ไม่พบข้อมูลรถที่มี id=1");
+          } else {
+            setSyncStatus(`✅ บันทึกลงฐานข้อมูลสำเร็จ (ล่าสุด: ${new Date().toLocaleTimeString('th-TH')})`);
+          }
+        } catch (err) {
+          console.error("Connection Error:", err);
+          setSyncStatus(`❌ การเชื่อมต่ออินเทอร์เน็ตมีปัญหา`);
+        }
       },
-      (error) => console.error("GPS Error:", error),
+      (error) => {
+        console.error("GPS Error:", error);
+        setSyncStatus(`❌ ดึงพิกัด GPS ไม่ได้: ${error.message}`);
+      },
       { enableHighAccuracy: true, maximumAge: 0 }
     );
     
     setWatchId(id);
   };
 
+  // 4. ฟังก์ชันหยุดการทำงาน
   const stopTracking = () => {
     if (watchId !== null) {
-      navigator.geolocation.clearWatch(watchId); // สั่งหยุดจับพิกัด
+      navigator.geolocation.clearWatch(watchId); 
       setWatchId(null);
     }
     setIsTracking(false);
+    setSyncStatus("🛑 หยุดการทำงานชั่วคราว");
   };
 
   return (
@@ -98,13 +116,21 @@ export default function TrackerPage() {
       {/* ส่วนแผงควบคุม */}
       <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 w-full text-center">
         <h1 className="text-xl font-bold text-gray-800 mb-2">ระบบส่งพิกัดรถบัส</h1>
-        <p className="mb-4 text-sm text-gray-500">
-          สถานะ: {isTracking ? <span className="text-green-500 font-semibold">กำลังส่งข้อมูลพิกัดและอัปเดตแผนที่...</span> : <span className="text-red-500">หยุดการทำงาน</span>}
-        </p>
+        
+        {/* กล่องแสดงสถานะที่เพิ่มเข้ามาใหม่ */}
+        <div className={`p-3 rounded-lg text-sm font-medium mb-4 ${
+          syncStatus.includes("✅") ? "bg-green-50 text-green-700 border border-green-200" :
+          syncStatus.includes("❌") ? "bg-red-50 text-red-700 border border-red-200" :
+          syncStatus.includes("⚠️") ? "bg-yellow-50 text-yellow-700 border border-yellow-200" :
+          "bg-blue-50 text-blue-700 border border-blue-200"
+        }`}>
+          {syncStatus}
+        </div>
         
         {isTracking && (
-          <div className="bg-blue-50 rounded-lg p-3 mb-4 text-sm text-blue-800 font-mono">
-            Lat: {coords.lat.toFixed(6)} | Lng: {coords.lng.toFixed(6)}
+          <div className="bg-gray-50 rounded-lg p-3 mb-4 text-sm text-gray-600 font-mono border border-gray-200">
+            พิกัดปัจจุบัน: <br/>
+            {coords.lat.toFixed(6)}, {coords.lng.toFixed(6)}
           </div>
         )}
 
@@ -116,7 +142,7 @@ export default function TrackerPage() {
               isTracking ? "bg-gray-300 cursor-not-allowed" : "bg-blue-600 hover:bg-blue-700 shadow-md"
             }`}
           >
-            เริ่มส่งพิกัด
+            ▶ เริ่มส่งพิกัด
           </button>
           
           <button
@@ -126,13 +152,13 @@ export default function TrackerPage() {
               !isTracking ? "bg-gray-100 text-gray-400 cursor-not-allowed" : "bg-red-500 hover:bg-red-600 text-white shadow-md"
             }`}
           >
-            หยุดส่งพิกัด
+            ⏹ หยุดส่ง
           </button>
         </div>
       </div>
 
       {/* ส่วนแสดงแผนที่ */}
-      <div className="flex-1 bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden min-h-[300px] relative z-0">
+      <div className="flex-1 bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden min-h-[350px] relative z-0">
         <div ref={mapContainer} className="w-full h-full" />
       </div>
     </div>
