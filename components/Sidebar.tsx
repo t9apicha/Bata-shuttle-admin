@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { LayoutDashboard, Bus, Route, MapPin, Menu, X } from "lucide-react";
+import { LayoutDashboard, Bus, Route, MapPin, Menu, X, Navigation } from "lucide-react";
 
 export default function Sidebar() {
   const [isOpen, setIsOpen] = useState(false);
@@ -52,9 +52,9 @@ export default function Sidebar() {
           </div>
 
           <nav className="space-y-1">
-            <Link href="/" onClick={() => setIsOpen(false)} className="flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-gray-700 hover:bg-blue-50 hover:text-blue-600 transition-colors">
-              <LayoutDashboard className="w-5 h-5" /> Dashboard
-            </Link>
+            <Link href="/tracker" onClick={() => setIsOpen(false)} className="flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-gray-700 hover:bg-blue-50 hover:text-blue-600 transition-colors">
+          <Navigation className="w-5 h-5" /> GPS Tracker
+        </Link>
             <Link href="/vehicles" onClick={() => setIsOpen(false)} className="flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-gray-700 hover:bg-blue-50 hover:text-blue-600 transition-colors">
               <Bus className="w-5 h-5" /> Vehicles
             </Link>
