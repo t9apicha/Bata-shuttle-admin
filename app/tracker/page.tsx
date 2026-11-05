@@ -1,10 +1,60 @@
 "use client";
-import { useState } from "react";
-import { supabase } from "@/lib/supabase"; // ตรวจสอบให้แน่ใจว่า import ถูกต้องตามโปรเจกต์ของคุณ
+import { useState, useEffect, useRef } from "react";
+import { supabase } from "@/lib/supabase";
+import L from "leaflet";
+import "leaflet/dist/leaflet.css";
 
 export default function TrackerPage() {
   const [isTracking, setIsTracking] = useState(false);
-  const [coords, setCoords] = useState({ lat: 0, lng: 0 });
+  // ตั้งค่าเริ่มต้นพิกัดให้เป็นแถวๆ ม.รังสิต เพื่อให้แผนที่ไม่ไปโผล่กลางทะเลก่อนที่ GPS จะจับได้
+  const [coords, setCoords] = useState({ lat: 13.965, lng: 100.587 }); 
+  const [watchId, setWatchId] = useState<number | null>(null);
+
+  const mapRef = useRef<L.Map | null>(null);
+  const markerRef = useRef<L.Marker | null>(null);
+  const mapContainer = useRef<HTMLDivElement>(null);
+
+  // 1. สร้างแผนที่เมื่อเปิดหน้านี้
+  useEffect(() => {
+    if (typeof window !== "undefined" && mapContainer.current && !mapRef.current) {
+      // สร้างแผนที่
+      const map = L.map(mapContainer.current).setView([coords.lat, coords.lng], 16);
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 19,
+      }).addTo(map);
+
+      // สร้างหมุดรูปวงกลมสำหรับแทนตัวรถบัส
+      const busIcon = L.divIcon({
+        className: "custom-bus-marker",
+        html: `<div style="background-color: #EF4444; color: white; width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 20px; border: 3px solid white; box-shadow: 0 3px 6px rgba(0,0,0,0.3);">🚌</div>`,
+        iconSize: [40, 40],
+        iconAnchor: [20, 20],
+      });
+
+      // ปักหมุดลงแผนที่
+      const marker = L.marker([coords.lat, coords.lng], { icon: busIcon }).addTo(map);
+
+      mapRef.current = map;
+      markerRef.current = marker;
+    }
+
+    return () => {
+      // ล้างข้อมูลแผนที่เมื่อปิดหน้าเว็บ
+      if (mapRef.current) {
+        mapRef.current.remove();
+        mapRef.current = null;
+      }
+    };
+  }, []);
+
+  // 2. อัปเดตตำแหน่งหมุดบนแผนที่ เมื่อ GPS (coords) มีการเปลี่ยนแปลง
+  useEffect(() => {
+    if (mapRef.current && markerRef.current && isTracking) {
+      const newLatLng = new L.LatLng(coords.lat, coords.lng);
+      markerRef.current.setLatLng(newLatLng); // เลื่อนหมุด
+      mapRef.current.setView(newLatLng, 17);  // เลื่อนกล้องแผนที่ตาม
+    }
+  }, [coords, isTracking]);
 
   const startTracking = () => {
     if (!navigator.geolocation) {
@@ -14,13 +64,13 @@ export default function TrackerPage() {
 
     setIsTracking(true);
 
-    // คำสั่งจับพิกัด GPS ตลอดเวลาที่รถเคลื่อนที่
-    navigator.geolocation.watchPosition(
+    // เก็บ ID ของการติดตามไว้ เพื่อให้ยกเลิกได้ทีหลัง
+    const id = navigator.geolocation.watchPosition(
       async (position) => {
         const { latitude, longitude } = position.coords;
         setCoords({ lat: latitude, lng: longitude });
 
-        // ส่งพิกัดใหม่ไปอัปเดตที่ตาราง vehicles บน Supabase (สมมติว่าอัปเดตรถคันที่ id = 1)
+        // ส่งพิกัดใหม่ไปอัปเดตที่ตาราง vehicles (สมมติว่าอัปเดตรถคันที่ id = 1)
         const { error } = await supabase
           .from("vehicles")
           .update({ latitude: latitude, longitude: longitude })
@@ -31,34 +81,59 @@ export default function TrackerPage() {
       (error) => console.error("GPS Error:", error),
       { enableHighAccuracy: true, maximumAge: 0 }
     );
+    
+    setWatchId(id);
+  };
+
+  const stopTracking = () => {
+    if (watchId !== null) {
+      navigator.geolocation.clearWatch(watchId); // สั่งหยุดจับพิกัด
+      setWatchId(null);
+    }
+    setIsTracking(false);
   };
 
   return (
-    <div className="flex flex-col items-center justify-center h-[80vh]">
-      <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 w-full max-w-sm text-center">
-        <div className="w-16 h-16 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-4">
-          <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.243-4.243a8 8 0 1111.314 0z"></path><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
-        </div>
+    <div className="flex flex-col h-full bg-gray-50 p-2 md:p-4 gap-4">
+      {/* ส่วนแผงควบคุม */}
+      <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 w-full text-center">
         <h1 className="text-xl font-bold text-gray-800 mb-2">ระบบส่งพิกัดรถบัส</h1>
-        <p className="mb-6 text-sm text-gray-500">
-          สถานะ: {isTracking ? <span className="text-green-500 font-semibold">กำลังส่งข้อมูล...</span> : <span className="text-red-500">หยุดการทำงาน</span>}
+        <p className="mb-4 text-sm text-gray-500">
+          สถานะ: {isTracking ? <span className="text-green-500 font-semibold">กำลังส่งข้อมูลพิกัดและอัปเดตแผนที่...</span> : <span className="text-red-500">หยุดการทำงาน</span>}
         </p>
         
         {isTracking && (
-          <div className="bg-gray-50 rounded-lg p-3 mb-6 text-sm text-gray-600 font-mono">
-            Lat: {coords.lat.toFixed(5)} <br/> Lng: {coords.lng.toFixed(5)}
+          <div className="bg-blue-50 rounded-lg p-3 mb-4 text-sm text-blue-800 font-mono">
+            Lat: {coords.lat.toFixed(6)} | Lng: {coords.lng.toFixed(6)}
           </div>
         )}
 
-        <button
-          onClick={startTracking}
-          disabled={isTracking}
-          className={`w-full py-3 rounded-xl font-bold text-white transition-colors ${
-            isTracking ? "bg-gray-300 cursor-not-allowed" : "bg-blue-600 hover:bg-blue-700 shadow-md"
-          }`}
-        >
-          {isTracking ? "ระบบทำงานอยู่" : "เริ่มส่งพิกัด GPS"}
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={startTracking}
+            disabled={isTracking}
+            className={`flex-1 py-3 rounded-xl font-bold text-white transition-colors ${
+              isTracking ? "bg-gray-300 cursor-not-allowed" : "bg-blue-600 hover:bg-blue-700 shadow-md"
+            }`}
+          >
+            เริ่มส่งพิกัด
+          </button>
+          
+          <button
+            onClick={stopTracking}
+            disabled={!isTracking}
+            className={`flex-1 py-3 rounded-xl font-bold transition-colors ${
+              !isTracking ? "bg-gray-100 text-gray-400 cursor-not-allowed" : "bg-red-500 hover:bg-red-600 text-white shadow-md"
+            }`}
+          >
+            หยุดส่งพิกัด
+          </button>
+        </div>
+      </div>
+
+      {/* ส่วนแสดงแผนที่ */}
+      <div className="flex-1 bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden min-h-[300px] relative z-0">
+        <div ref={mapContainer} className="w-full h-full" />
       </div>
     </div>
   );
