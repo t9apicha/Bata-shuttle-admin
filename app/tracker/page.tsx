@@ -1,40 +1,45 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
 import { supabase } from "@/lib/supabase";
-import L from "leaflet";
-import "leaflet/dist/leaflet.css";
+import "leaflet/dist/leaflet.css"; // CSS โหลดได้ปกติ ไม่มีปัญหา
 
 export default function TrackerPage() {
   const [isTracking, setIsTracking] = useState(false);
   const [coords, setCoords] = useState({ lat: 13.965, lng: 100.587 }); 
   const [watchId, setWatchId] = useState<number | null>(null);
-  
-  // ตัวแปรใหม่: เอาไว้แสดงสถานะบนหน้าจอว่าเข้า Supabase จริงไหม
   const [syncStatus, setSyncStatus] = useState<string>("รอการเริ่มต้น..."); 
 
-  const mapRef = useRef<L.Map | null>(null);
-  const markerRef = useRef<L.Marker | null>(null);
+  // ใช้ any เพราะเราจะโหลด L แบบไดนามิก
+  const mapRef = useRef<any>(null);
+  const markerRef = useRef<any>(null);
   const mapContainer = useRef<HTMLDivElement>(null);
+  const LRef = useRef<any>(null); // เก็บตัวแปร Leaflet ไว้ใช้ข้ามฟังก์ชัน
 
-  // 1. สร้างแผนที่
+  // 1. สร้างแผนที่ (โหลด Leaflet แบบ Dynamic เฉพาะฝั่ง Client)
   useEffect(() => {
     if (typeof window !== "undefined" && mapContainer.current && !mapRef.current) {
-      const map = L.map(mapContainer.current).setView([coords.lat, coords.lng], 16);
-      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-        maxZoom: 19,
-      }).addTo(map);
+      
+      // นำเข้า Leaflet เฉพาะตอนที่หน้าจอทำงานแล้ว
+      import("leaflet").then((L) => {
+        LRef.current = L; // เก็บ L ไว้ใช้งานอัปเดตพิกัดทีหลัง
 
-      const busIcon = L.divIcon({
-        className: "custom-bus-marker",
-        html: `<div style="background-color: #EF4444; color: white; width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 20px; border: 3px solid white; box-shadow: 0 3px 6px rgba(0,0,0,0.3);">🚌</div>`,
-        iconSize: [40, 40],
-        iconAnchor: [20, 20],
+        const map = L.map(mapContainer.current!).setView([coords.lat, coords.lng], 16);
+        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+          maxZoom: 19,
+        }).addTo(map);
+
+        const busIcon = L.divIcon({
+          className: "custom-bus-marker",
+          html: `<div style="background-color: #EF4444; color: white; width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 20px; border: 3px solid white; box-shadow: 0 3px 6px rgba(0,0,0,0.3);">🚌</div>`,
+          iconSize: [40, 40],
+          iconAnchor: [20, 20],
+        });
+
+        const marker = L.marker([coords.lat, coords.lng], { icon: busIcon }).addTo(map);
+
+        mapRef.current = map;
+        markerRef.current = marker;
       });
-
-      const marker = L.marker([coords.lat, coords.lng], { icon: busIcon }).addTo(map);
-
-      mapRef.current = map;
-      markerRef.current = marker;
     }
 
     return () => {
@@ -47,14 +52,15 @@ export default function TrackerPage() {
 
   // 2. อัปเดตหมุดบนแผนที่
   useEffect(() => {
-    if (mapRef.current && markerRef.current && isTracking) {
-      const newLatLng = new L.LatLng(coords.lat, coords.lng);
+    // เช็คว่า LRef.current ถูกโหลดมาพร้อมแล้วถึงจะทำงาน
+    if (mapRef.current && markerRef.current && isTracking && LRef.current) {
+      const newLatLng = new LRef.current.LatLng(coords.lat, coords.lng);
       markerRef.current.setLatLng(newLatLng); 
       mapRef.current.setView(newLatLng, 17);  
     }
   }, [coords, isTracking]);
 
-  // 3. ฟังก์ชันเริ่มจับ GPS และส่งเข้า Supabase
+  // 3. ฟังก์ชันเริ่มจับ GPS
   const startTracking = () => {
     if (!navigator.geolocation) {
       alert("อุปกรณ์นี้ไม่รองรับการระบุตำแหน่ง");
@@ -71,7 +77,6 @@ export default function TrackerPage() {
         setSyncStatus("สัญญาณ GPS อัปเดต กำลังส่งเข้าฐานข้อมูล...");
 
         try {
-          // ใช้ .select() ต่อท้ายเพื่อให้ Supabase ตอบกลับมาว่าอัปเดตสำเร็จกี่บรรทัด
           const { data, error } = await supabase
             .from("vehicles")
             .update({ latitude: latitude, longitude: longitude })
@@ -113,11 +118,9 @@ export default function TrackerPage() {
 
   return (
     <div className="flex flex-col h-full bg-gray-50 p-2 md:p-4 gap-4">
-      {/* ส่วนแผงควบคุม */}
       <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 w-full text-center">
         <h1 className="text-xl font-bold text-gray-800 mb-2">ระบบส่งพิกัดรถบัส</h1>
         
-        {/* กล่องแสดงสถานะที่เพิ่มเข้ามาใหม่ */}
         <div className={`p-3 rounded-lg text-sm font-medium mb-4 ${
           syncStatus.includes("✅") ? "bg-green-50 text-green-700 border border-green-200" :
           syncStatus.includes("❌") ? "bg-red-50 text-red-700 border border-red-200" :
@@ -157,7 +160,6 @@ export default function TrackerPage() {
         </div>
       </div>
 
-      {/* ส่วนแสดงแผนที่ */}
       <div className="flex-1 bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden min-h-[350px] relative z-0">
         <div ref={mapContainer} className="w-full h-full" />
       </div>
