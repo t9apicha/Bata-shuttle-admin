@@ -17,7 +17,7 @@ export default function RootLayout({
     <html lang="en">
       <body className="bg-gray-100 min-h-screen flex font-sans">
         {/* Sidebar ด้านซ้าย */}
-        <aside className="w-64 bg-white border-r border-gray-200 flex flex-col justify-between p-4 flex-shrink-0">
+        <aside className="hidden md:flex w-64 bg-white border-r border-gray-200 flex flex-col justify-between p-4 flex-shrink-0">
           <div>
             <div className="flex items-center gap-3 px-3 py-4 mb-6">
               <div className="bg-blue-600 p-2 rounded-xl text-white">
