@@ -32,7 +32,7 @@ export default function TrackerPage() {
   useEffect(() => {
     const role = localStorage.getItem("userRole");
     if (!role) {
-      router.push("/login"); // ถ้าไม่มีสิทธิ์ เด้งกลับหน้า Login
+      router.push("/"); // ถ้าไม่มีสิทธิ์ เด้งกลับหน้า Login
     } else {
       const name = localStorage.getItem("driverName");
       if (name) setDriverName(name);
@@ -234,7 +234,7 @@ export default function TrackerPage() {
   const handleLogout = async () => {
     await stopTracking(); // หยุดส่งพิกัดก่อนออก
     localStorage.clear(); // ล้างข้อมูลการล็อกอิน
-    router.push("/login");
+    router.push("/");
   };
 
   return (
