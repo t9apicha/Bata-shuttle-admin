@@ -52,10 +52,11 @@ export default function Sidebar() {
           </div>
 
           <nav className="space-y-1">
-            {/* ปุ่มกลับหน้า Dashboard */}
-            <Link href="/" onClick={() => setIsOpen(false)} className="flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-gray-700 hover:bg-blue-50 hover:text-blue-600 transition-colors">
+            {/* 🔥 แก้ไขตรงนี้: เปลี่ยนจาก href="/" เป็น href="/admin" เพื่อให้กดแล้วกลับหน้า Dashboard แอดมินจริง ๆ */}
+            <Link href="/admin" onClick={() => setIsOpen(false)} className="flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-gray-700 hover:bg-blue-50 hover:text-blue-600 transition-colors">
               <LayoutDashboard className="w-5 h-5" /> Dashboard
             </Link>
+            
             <Link href="/vehicles" onClick={() => setIsOpen(false)} className="flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-gray-700 hover:bg-blue-50 hover:text-blue-600 transition-colors">
               <Bus className="w-5 h-5" /> Vehicles
             </Link>
