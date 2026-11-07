@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation"; // 1. นำเข้า useRouter
 import { supabase } from "@/lib/supabase";
 import { Bus, Route, MapPin, Activity } from "lucide-react";
 import dynamic from "next/dynamic";
@@ -14,6 +15,16 @@ const MapComponent = dynamic(() => import("@/components/Map"), {
 });
 
 export default function Dashboard() {
+  const router = useRouter(); // 2. เรียกใช้งาน router
+
+  // 🔥 3. เพิ่มระบบ Auth Guard: ถ้าไม่ใช่ Admin ให้เด้งกลับไปหน้า Login
+  useEffect(() => {
+    const role = localStorage.getItem("userRole");
+    if (role !== "admin") {
+      router.push("/login");
+    }
+  }, [router]);
+
   const [stats, setStats] = useState({ vehicles: 0, routes: 0, stops: 0, activeVehicles: 0 });
   const [stops, setStops] = useState<any[]>([]);
   const [routes, setRoutes] = useState<any[]>([]);

@@ -1,11 +1,18 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
+import { useRouter } from "next/navigation"; // 1. นำเข้า useRouter
 import { supabase } from "@/lib/supabase";
 import "leaflet/dist/leaflet.css";
 
 export default function TrackerPage() {
+  const router = useRouter(); // 2. เรียกใช้งาน router
+  
   const [vehicles, setVehicles] = useState<any[]>([]);
   const [selectedVehicle, setSelectedVehicle] = useState<any | null>(null);
+
+  // ข้อมูลคนขับ
+  const [driverName, setDriverName] = useState<string>("");
+  const [logId, setLogId] = useState<number | null>(null); // เก็บ ID ของประวัติการขับรอบนี้
 
   const [isTracking, setIsTracking] = useState(false);
   const [coords, setCoords] = useState({ lat: 13.9649, lng: 100.5872 }); 
@@ -15,13 +22,22 @@ export default function TrackerPage() {
   const [stops, setStops] = useState<any[]>([]);
   const [routes, setRoutes] = useState<any[]>([]);
   
-  // ใช้ LayerGroup แบบเดียวกับหน้า Dashboard เพื่อป้องกันแผนที่หายเวลาสลับหน้าจอ
   const staticLayersRef = useRef<any>(null); 
-
   const mapRef = useRef<any>(null);
   const markerRef = useRef<any>(null);
   const mapContainer = useRef<HTMLDivElement>(null);
   const LRef = useRef<any>(null); 
+
+  // 🔥 3. ระบบ Auth Guard & ดึงชื่อคนขับ
+  useEffect(() => {
+    const role = localStorage.getItem("userRole");
+    if (!role) {
+      router.push("/login"); // ถ้าไม่มีสิทธิ์ เด้งกลับหน้า Login
+    } else {
+      const name = localStorage.getItem("driverName");
+      if (name) setDriverName(name);
+    }
+  }, [router]);
 
   // 1. ดึงข้อมูลทั้งหมด
   useEffect(() => {
@@ -50,7 +66,6 @@ export default function TrackerPage() {
           attribution: '&copy; OpenStreetMap',
         }).addTo(map);
 
-        // สร้าง Group สำหรับจัดเก็บ ป้าย และ เส้นทาง โดยเฉพาะ
         staticLayersRef.current = L.layerGroup().addTo(map);
 
         const busIcon = L.divIcon({
@@ -75,47 +90,38 @@ export default function TrackerPage() {
     };
   }, []);
 
-  // 2.5 แก้บั๊กแผนที่ขอบเทา: เมื่อคนขับเลือกรถเสร็จ ให้แผนที่รีเฟรชขนาดตัวเอง
   useEffect(() => {
     if (selectedVehicle && mapRef.current) {
-      setTimeout(() => {
-        mapRef.current.invalidateSize();
-      }, 300);
+      setTimeout(() => { mapRef.current.invalidateSize(); }, 300);
     }
   }, [selectedVehicle]);
 
-  // 3. วาดเส้นทางและป้ายจอดรถ (ลบของเก่าแล้ววาดใหม่เสมอ)
+  // 3. วาดเส้นทางและป้ายจอดรถ
   useEffect(() => {
     if (!mapRef.current || !LRef.current || !staticLayersRef.current) return;
     const L = LRef.current;
     const staticGroup = staticLayersRef.current;
     
-    // เคลียร์เลเยอร์ป้ายและเส้นทางเก่าออกก่อนวาดใหม่ (ป้องกันการวาดทับและบั๊กหาย)
     staticGroup.clearLayers();
 
-    // วาดเส้นทาง
     if (routes && routes.length > 0) {
       routes.forEach((route) => {
         if (route.path_coordinates) {
            let geoData = route.path_coordinates;
            if(typeof geoData === 'string'){
-              try { geoData = JSON.parse(geoData); } 
-              catch(e){}
+              try { geoData = JSON.parse(geoData); } catch(e){}
            }
 
           L.geoJSON(geoData, {
-            style: function () {
-              return { color: route.color || '#4B0082', weight: 5, opacity: 0.8 };
-            },
+            style: function () { return { color: route.color || '#4B0082', weight: 5, opacity: 0.8 }; },
             pointToLayer: function (feature: any, latlng: any) {
               return L.circleMarker(latlng, { radius: 6, fillColor: '#8A2BE2', color: '#ffffff', weight: 2, fillOpacity: 1 });
             }
-          }).addTo(staticGroup); // ใส่เข้าไปใน LayerGroup
+          }).addTo(staticGroup); 
         }
       });
     }
 
-    // วาดป้ายจอดรถ
     if (stops && stops.length > 0) {
       stops.forEach((stop) => {
         if (stop.latitude && stop.longitude && stop.latitude !== 0) {
@@ -128,13 +134,13 @@ export default function TrackerPage() {
 
           L.marker([stop.latitude, stop.longitude], { icon: customStopIcon })
             .bindPopup(`<b>${stop.name}</b><br/>Code: ${stop.code}`)
-            .addTo(staticGroup); // ใส่เข้าไปใน LayerGroup
+            .addTo(staticGroup); 
         }
       });
     }
-  }, [stops, routes, selectedVehicle]); // เพิ่ม selectedVehicle เพื่อให้มันวาดทุกครั้งที่กดเลือกรถเข้าแผนที่
+  }, [stops, routes, selectedVehicle]); 
 
-  // 4. อัปเดตตำแหน่งหมุดเมื่อ GPS ขยับ
+  // 4. อัปเดตตำแหน่งหมุด
   useEffect(() => {
     if (mapRef.current && markerRef.current && isTracking && LRef.current) {
       const newLatLng = new LRef.current.LatLng(coords.lat, coords.lng);
@@ -143,8 +149,8 @@ export default function TrackerPage() {
     }
   }, [coords, isTracking]);
 
-  // 5. ระบบส่งพิกัด
-  const startTracking = () => {
+  // 5. ระบบส่งพิกัด พร้อมบันทึกประวัติ (Driver Logs)
+  const startTracking = async () => {
     if (!navigator.geolocation) {
       alert("อุปกรณ์นี้ไม่รองรับการระบุตำแหน่ง");
       return;
@@ -155,6 +161,19 @@ export default function TrackerPage() {
     }
 
     setIsTracking(true);
+    setSyncStatus("กำลังบันทึกประวัติการขับขี่...");
+
+    // 🔥 บันทึกประวัติว่าใครเริ่มขับรถคันไหน
+    const dId = localStorage.getItem("driverId");
+    if (dId) {
+      const { data: logData } = await supabase
+        .from("driver_logs")
+        .insert({ driver_id: parseInt(dId), vehicle_id: selectedVehicle.id, status: 'DRIVING' })
+        .select().single();
+      
+      if (logData) setLogId(logData.id);
+    }
+
     setSyncStatus("กำลังค้นหาสัญญาณ GPS...");
 
     const id = navigator.geolocation.watchPosition(
@@ -172,8 +191,6 @@ export default function TrackerPage() {
 
           if (error) {
             setSyncStatus(`❌ บันทึกไม่สำเร็จ: ${error.message}`);
-          } else if (data && data.length === 0) {
-            setSyncStatus(`⚠️ เชื่อมต่อได้ แต่ไม่พบข้อมูลรถ ID: ${selectedVehicle.id}`);
           } else {
             setSyncStatus(`✅ บันทึกลงฐานข้อมูลสำเร็จ (ล่าสุด: ${new Date().toLocaleTimeString('th-TH')})`);
           }
@@ -190,28 +207,51 @@ export default function TrackerPage() {
     setWatchId(id);
   };
 
-  const stopTracking = () => {
+  const stopTracking = async () => {
     if (watchId !== null) {
       navigator.geolocation.clearWatch(watchId); 
       setWatchId(null);
     }
     setIsTracking(false);
     setSyncStatus("🛑 หยุดการทำงานชั่วคราว");
+
+    // 🔥 อัปเดตเวลาเลิกขับลงในฐานข้อมูล
+    if (logId) {
+      await supabase
+        .from("driver_logs")
+        .update({ end_time: new Date().toISOString(), status: 'COMPLETED' })
+        .eq("id", logId);
+      setLogId(null);
+    }
   };
 
-  const handleChangeVehicle = () => {
-    stopTracking();
+  const handleChangeVehicle = async () => {
+    await stopTracking();
     setSelectedVehicle(null);
     setSyncStatus("รอการเริ่มต้น...");
+  };
+
+  const handleLogout = async () => {
+    await stopTracking(); // หยุดส่งพิกัดก่อนออก
+    localStorage.clear(); // ล้างข้อมูลการล็อกอิน
+    router.push("/login");
   };
 
   return (
     <>
       {!selectedVehicle && (
         <div className="fixed inset-0 z-[100] bg-gray-50 flex flex-col items-center justify-center p-4">
+          
+          {/* ปุ่มออกจากระบบสำหรับหน้าเลือกรถ */}
+          <button onClick={handleLogout} className="absolute top-6 right-6 px-4 py-2 bg-white rounded-lg shadow-sm border border-gray-200 text-red-500 font-bold hover:bg-red-50">
+            ออกจากระบบ
+          </button>
+
           <div className="max-w-2xl w-full">
-            <h1 className="text-2xl md:text-3xl font-bold text-gray-800 text-center mb-2">เลือกรถที่คุณกำลังขับ</h1>
-            <p className="text-gray-500 text-center mb-8">เลือกรถบัสเพื่อเริ่มส่งพิกัด GPS เข้าสู่ระบบ</p>
+            <h1 className="text-2xl md:text-3xl font-bold text-blue-800 text-center mb-2">
+              {driverName ? `สวัสดี, ${driverName} 👋` : "เลือกรถที่คุณกำลังขับ"}
+            </h1>
+            <p className="text-gray-500 text-center mb-8">กรุณาเลือกรถบัสเพื่อเริ่มงาน และส่งพิกัดเข้าสู่ระบบ</p>
             
             {vehicles.length === 0 ? (
               <p className="text-center text-gray-400 py-10">กำลังโหลดข้อมูลรถ...</p>
@@ -244,18 +284,26 @@ export default function TrackerPage() {
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 w-full">
           <div className="flex justify-between items-center mb-4 border-b border-gray-100 pb-4">
             <div>
-              <h1 className="text-xl font-bold text-gray-800">ระบบส่งพิกัด: {selectedVehicle?.name}</h1>
-              <p className="text-xs text-gray-500">รหัสรถ: {selectedVehicle?.code}</p>
+              <h1 className="text-xl font-bold text-gray-800">รถ: {selectedVehicle?.name}</h1>
+              <p className="text-xs text-gray-500">คนขับ: {driverName || "ไม่ทราบชื่อ"}</p>
             </div>
             
-            {!isTracking && (
+            <div className="flex gap-2">
+              {!isTracking && (
+                <button 
+                  onClick={handleChangeVehicle}
+                  className="text-sm px-3 py-2 bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200 transition-colors font-medium"
+                >
+                  เปลี่ยนรถ
+                </button>
+              )}
               <button 
-                onClick={handleChangeVehicle}
-                className="text-sm px-3 py-2 bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200 transition-colors font-medium"
+                onClick={handleLogout}
+                className="text-sm px-3 py-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-colors font-medium"
               >
-                เปลี่ยนรถ
+                ออกจากระบบ
               </button>
-            )}
+            </div>
           </div>
           
           <div className={`p-3 rounded-lg text-sm font-medium mb-4 text-center ${
@@ -291,7 +339,7 @@ export default function TrackerPage() {
                 !isTracking ? "bg-gray-100 text-gray-400 cursor-not-allowed" : "bg-red-500 hover:bg-red-600 text-white"
               }`}
             >
-              ⏹ หยุดส่ง
+              ⏹ หยุดส่ง / จบงาน
             </button>
           </div>
         </div>
