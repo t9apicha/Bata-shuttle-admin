@@ -5,7 +5,7 @@ import "leaflet/dist/leaflet.css";
 
 export default function TrackerPage() {
   const [isTracking, setIsTracking] = useState(false);
-  const [coords, setCoords] = useState({ lat: 13.965, lng: 100.587 }); 
+  const [coords, setCoords] = useState({ lat: 13.9649, lng: 100.5872 }); 
   const [watchId, setWatchId] = useState<number | null>(null);
   const [syncStatus, setSyncStatus] = useState<string>("รอการเริ่มต้น..."); 
 
@@ -38,13 +38,14 @@ export default function TrackerPage() {
         const map = L.map(mapContainer.current!).setView([coords.lat, coords.lng], 16);
         L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
           maxZoom: 19,
+          attribution: '&copy; OpenStreetMap',
         }).addTo(map);
 
         const busIcon = L.divIcon({
-          className: "custom-bus-marker",
-          html: `<div style="background-color: #EF4444; color: white; width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 20px; border: 3px solid white; box-shadow: 0 3px 6px rgba(0,0,0,0.3);">🚌</div>`,
-          iconSize: [40, 40],
-          iconAnchor: [20, 20],
+          className: "custom-bus-icon",
+          html: `<div style="font-size: 24px; filter: drop-shadow(0px 2px 4px rgba(0,0,0,0.5)); transition: transform 1s linear;">🚌</div>`,
+          iconSize: [30, 30],
+          iconAnchor: [15, 15],
         });
 
         const marker = L.marker([coords.lat, coords.lng], { icon: busIcon, zIndexOffset: 1000 }).addTo(map);
@@ -61,7 +62,7 @@ export default function TrackerPage() {
     };
   }, []);
 
-  // 3. วาดเส้นทางและป้ายจอดรถ
+  // 3. วาดเส้นทางและป้ายจอดรถแบบเดียวกับ Map.tsx
   useEffect(() => {
     if (!mapRef.current || !LRef.current || dataDrawnRef.current) return;
     
@@ -69,39 +70,65 @@ export default function TrackerPage() {
       const L = LRef.current;
       const map = mapRef.current;
 
-      // วาดเส้นทาง (เพิ่มระบบเช็คและแปลงข้อมูล GeoJSON)
-      routes.forEach((route) => {
-        if (route.path_coordinates) {
-          try {
-            // ถ้าข้อมูลเป็นข้อความ ให้แปลงเป็น JSON Object ก่อนวาด
-            const geoData = typeof route.path_coordinates === "string" 
-              ? JSON.parse(route.path_coordinates) 
-              : route.path_coordinates;
-              
-            L.geoJSON(geoData, {
-              style: { color: "#3B82F6", weight: 5, opacity: 0.6 } 
-            }).addTo(map);
-          } catch (error) {
-            console.error("Error drawing route:", error);
-          }
-        }
-      });
+      // วาดเส้นทาง (GeoJSON)
+      if (routes && routes.length > 0) {
+        routes.forEach((route) => {
+          if (route.path_coordinates) {
+             let geoData = route.path_coordinates;
+             // แปลงข้อมูลถ้าถูกเก็บมาในรูป string
+             if(typeof geoData === 'string'){
+                try {
+                    geoData = JSON.parse(geoData);
+                } catch(e){
+                    console.error("Error parsing GeoJSON", e);
+                }
+             }
 
-      // วาดจุดจอด (เปลี่ยนจาก "P" เป็นการดึง stop.name มาแสดงในกรอบแคปซูล)
+            L.geoJSON(geoData, {
+              style: function () {
+                return { color: route.color || '#4B0082', weight: 5, opacity: 0.8 };
+              },
+              pointToLayer: function (feature: any, latlng: any) {
+                return L.circleMarker(latlng, {
+                  radius: 6, fillColor: '#8A2BE2', color: '#ffffff', weight: 2, fillOpacity: 1
+                });
+              }
+            }).addTo(map);
+          }
+        });
+      }
+
+      // วาดป้ายจอดรถ
       stops.forEach((stop) => {
-        if (stop.latitude && stop.longitude) {
-          const stopIcon = L.divIcon({
+        if (stop.latitude && stop.longitude && stop.latitude !== 0) {
+          const customStopIcon = L.divIcon({
             className: "custom-stop-marker",
-            html: `<div style="background-color: white; border: 2px solid #3B82F6; color: #3B82F6; border-radius: 20px; padding: 4px 10px; font-size: 12px; font-weight: bold; white-space: nowrap; box-shadow: 0 2px 4px rgba(0,0,0,0.2); display: inline-block;">
+            html: `<div style="
+              background-color: white;
+              border: 3px solid #3B82F6;
+              border-radius: 50%;
+              width: 50px;
+              height: 50px;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              font-weight: bold;
+              font-size: 10px;
+              color: #1E3A8A;
+              box-shadow: 0px 3px 6px rgba(0,0,0,0.3);
+              text-align: center;
+              line-height: 1.1;
+              padding: 2px;
+            ">
               ${stop.name}
             </div>`,
-            iconSize: [0, 0], // ปล่อยให้ขยายตามข้อความอัตโนมัติ
-            iconAnchor: [20, 15],
+            iconSize: [50, 50],
+            iconAnchor: [25, 25], 
           });
-          
-          L.marker([stop.latitude, stop.longitude], { icon: stopIcon })
-            .bindPopup(`<b>${stop.name}</b>`)
-            .addTo(map);
+
+          L.marker([stop.latitude, stop.longitude], { icon: customStopIcon })
+            .addTo(map)
+            .bindPopup(`<b>${stop.name}</b><br/>Code: ${stop.code}`);
         }
       });
 
