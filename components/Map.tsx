@@ -6,108 +6,111 @@ import "leaflet/dist/leaflet.css";
 interface MapProps {
   stops: any[];
   routes?: any[];
-  vehicles?: any[]; // รับข้อมูลรถจริงมาวาด
+  vehicles?: any[];
 }
 
-export default function Map({ stops, routes = [], vehicles = [] }: MapProps) {
+export default function Map({ stops = [], routes = [], vehicles = [] }: MapProps) {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
   
-  // แยกตัวแปรเช็คการวาดป้ายกับเส้นทางออกจากกัน
-  const stopsDrawnRef = useRef(false); 
-  const routesDrawnRef = useRef(false);
+  // ใช้ LayerGroup เพื่อจัดการเส้นทางและป้าย (ทำให้ลบและวาดใหม่ได้ง่ายๆ ตอนสลับหน้าจอ)
+  const staticLayersRef = useRef<L.LayerGroup | null>(null);
   const vehicleMarkersRef = useRef<{ [key: number]: L.Marker }>({}); 
 
-  // 1. สร้างแผนที่ (ทำแค่ครั้งเดียว)
+  // 1. จัดการการสร้างแผนที่ (ทำงานแค่ตอนเปิดและปิดคอมโพเนนต์)
   useEffect(() => {
-    if (!mapRef.current || mapInstanceRef.current) return;
-
-    const map = L.map(mapRef.current).setView([13.9649, 100.5872], 16);
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      attribution: '&copy; OpenStreetMap',
-    }).addTo(map);
+    if (!mapRef.current) return;
     
-    mapInstanceRef.current = map;
+    // ถ้ายังไม่มีแผนที่ ให้สร้างใหม่
+    if (!mapInstanceRef.current) {
+      const map = L.map(mapRef.current).setView([13.9649, 100.5872], 16);
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution: '&copy; OpenStreetMap',
+      }).addTo(map);
+      
+      // สร้าง Group เปล่าๆ เอาไว้ใส่ ป้าย กับ เส้นทาง
+      staticLayersRef.current = L.layerGroup().addTo(map);
+      mapInstanceRef.current = map;
+      
+      setTimeout(() => { map.invalidateSize(); }, 400);
+    }
 
-    // 🔥 แก้บั๊กขอบแผนที่สีเทา (บังคับให้ Leaflet คำนวณขนาดใหม่หลังโหลดเสร็จ)
-    setTimeout(() => {
-      map.invalidateSize();
-    }, 400);
-
+    // Cleanup: เวลาสลับหน้าจอ ให้ลบแผนที่และข้อมูลออกให้สะอาดหมดจด
     return () => {
       if (mapInstanceRef.current) {
         mapInstanceRef.current.remove();
         mapInstanceRef.current = null;
+        staticLayersRef.current = null;
+        vehicleMarkersRef.current = {};
       }
     };
-  }, []);
+  }, []); 
 
-  // 2. วาดเส้นทางสายรถ
+  // 2. วาดเส้นทางและป้าย (ลบของเก่าแล้ววาดใหม่เสมอ ป้องกันหายตอนสลับหน้า)
   useEffect(() => {
-    if (!mapInstanceRef.current || routesDrawnRef.current || routes.length === 0) return;
     const map = mapInstanceRef.current;
+    const staticGroup = staticLayersRef.current;
+    
+    if (!map || !staticGroup) return;
 
-    routes.forEach((route) => {
-      if (route.path_coordinates) {
+    // เคลียร์ป้ายและเส้นทางเดิมออกก่อน จะได้วาดใหม่โดยไม่ทับซ้อนกัน
+    staticGroup.clearLayers(); 
+
+    // วาดเส้นทาง
+    if (routes && routes.length > 0) {
+      routes.forEach((route) => {
+        if (route.path_coordinates) {
           let geoData = route.path_coordinates;
           if (typeof geoData === 'string') {
             try { geoData = JSON.parse(geoData); } catch(e){}
           }
+          L.geoJSON(geoData, {
+            style: function () {
+              return { color: route.color || '#4B0082', weight: 5, opacity: 0.8 };
+            },
+            pointToLayer: function (feature, latlng) {
+              return L.circleMarker(latlng, { radius: 6, fillColor: '#8A2BE2', color: '#ffffff', weight: 2, fillOpacity: 1 });
+            }
+          }).addTo(staticGroup);
+        }
+      });
+    }
 
-        L.geoJSON(geoData, {
-          style: function () {
-            return { color: route.color || '#4B0082', weight: 5, opacity: 0.8 };
-          },
-          pointToLayer: function (feature, latlng) {
-            return L.circleMarker(latlng, { radius: 6, fillColor: '#8A2BE2', color: '#ffffff', weight: 2, fillOpacity: 1 });
-          }
-        }).addTo(map);
-      }
-    });
-    
-    routesDrawnRef.current = true; // บันทึกว่าวาดเส้นทางเสร็จแล้ว
-  }, [routes]);
+    // วาดป้ายจอดรถ
+    if (stops && stops.length > 0) {
+      stops.forEach((stop) => {
+        if (stop.latitude && stop.longitude && stop.latitude !== 0) {
+          const customStopIcon = L.divIcon({
+            className: "custom-stop-marker",
+            html: `<div style="background-color: white; border: 3px solid #3B82F6; border-radius: 50%; width: 50px; height: 50px; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 10px; color: #1E3A8A; box-shadow: 0px 3px 6px rgba(0,0,0,0.3); text-align: center; line-height: 1.1; padding: 2px;">
+              ${stop.name}
+            </div>`,
+            iconSize: [50, 50],
+            iconAnchor: [25, 25],
+          });
 
-  // 3. วาดป้ายจอดรถ
+          L.marker([stop.latitude, stop.longitude], { icon: customStopIcon })
+            .bindPopup(`<b>${stop.name}</b><br/>Code: ${stop.code}`)
+            .addTo(staticGroup);
+        }
+      });
+    }
+  }, [stops, routes]); // ถ้าข้อมูลสลับ หรือกลับมาหน้านี้ใหม่ โค้ดตรงนี้จะทำงานวาดให้เสมอ
+
+  // 3. ระบบอัปเดตตำแหน่งรถ (Real-time)
   useEffect(() => {
-    if (!mapInstanceRef.current || stopsDrawnRef.current || stops.length === 0) return;
     const map = mapInstanceRef.current;
-
-    stops.forEach((stop) => {
-      if (stop.latitude && stop.longitude && stop.latitude !== 0) {
-        const customStopIcon = L.divIcon({
-          className: "custom-stop-marker",
-          html: `<div style="background-color: white; border: 3px solid #3B82F6; border-radius: 50%; width: 50px; height: 50px; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 10px; color: #1E3A8A; box-shadow: 0px 3px 6px rgba(0,0,0,0.3); text-align: center; line-height: 1.1; padding: 2px;">
-            ${stop.name}
-          </div>`,
-          iconSize: [50, 50],
-          iconAnchor: [25, 25],
-        });
-
-        L.marker([stop.latitude, stop.longitude], { icon: customStopIcon })
-          .addTo(map)
-          .bindPopup(`<b>${stop.name}</b><br/>Code: ${stop.code}`);
-      }
-    });
-    
-    stopsDrawnRef.current = true; // บันทึกว่าวาดป้ายเสร็จแล้ว
-  }, [stops]);
-
-  // 4. ระบบวาดและอัปเดตตำแหน่งรถ (Real-time)
-  useEffect(() => {
-    if (!mapInstanceRef.current) return;
-    const map = mapInstanceRef.current;
+    if (!map) return;
 
     vehicles.forEach((vehicle) => {
       if (!vehicle.latitude || !vehicle.longitude) return;
-
       const newPos: [number, number] = [vehicle.latitude, vehicle.longitude];
 
       if (vehicleMarkersRef.current[vehicle.id]) {
-        // รถขยับ
+        // ถ้ารถมีอยู่แล้วบนแผนที่ ให้ขยับอย่างเดียว
         vehicleMarkersRef.current[vehicle.id].setLatLng(newPos);
       } else {
-        // รถโผล่มาครั้งแรก
+        // ถ้าเพิ่งเปิดหน้าจอขึ้นมา หรือเป็นรถคันใหม่ ให้สร้างหมุด
         const busIcon = L.divIcon({
           className: "custom-bus-icon",
           html: `<div style="font-size: 24px; filter: drop-shadow(0px 2px 4px rgba(0,0,0,0.5)); transition: transform 0.8s ease-out;">🚌</div>`,
