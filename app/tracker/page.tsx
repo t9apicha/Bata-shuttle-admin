@@ -4,6 +4,10 @@ import { supabase } from "@/lib/supabase";
 import "leaflet/dist/leaflet.css";
 
 export default function TrackerPage() {
+  // --- เพิ่ม State สำหรับเก็บข้อมูลรถและการเลือกรถ ---
+  const [vehicles, setVehicles] = useState<any[]>([]);
+  const [selectedVehicle, setSelectedVehicle] = useState<any | null>(null);
+
   const [isTracking, setIsTracking] = useState(false);
   const [coords, setCoords] = useState({ lat: 13.9649, lng: 100.5872 }); 
   const [watchId, setWatchId] = useState<number | null>(null);
@@ -12,7 +16,6 @@ export default function TrackerPage() {
   const [stops, setStops] = useState<any[]>([]);
   const [routes, setRoutes] = useState<any[]>([]);
   
-  // แยกตัวแปรเช็คสถานะการวาดแผนที่ออกจากกัน
   const stopsDrawnRef = useRef(false); 
   const routesDrawnRef = useRef(false);
 
@@ -21,16 +24,18 @@ export default function TrackerPage() {
   const mapContainer = useRef<HTMLDivElement>(null);
   const LRef = useRef<any>(null); 
 
-  // 1. ดึงข้อมูลจุดจอดและเส้นทาง (โหลดพร้อมกัน)
+  // 1. ดึงข้อมูลรถ, จุดจอด, และเส้นทาง
   useEffect(() => {
     async function fetchMapData() {
-      const [stopsRes, routesRes] = await Promise.all([
+      const [stopsRes, routesRes, vehiclesRes] = await Promise.all([
         supabase.from("stops").select("*").eq("isActive", true),
-        supabase.from("routes").select("*").eq("isActive", true)
+        supabase.from("routes").select("*").eq("isActive", true),
+        supabase.from("vehicles").select("*").order("id", { ascending: true }) // ดึงรถทั้งหมดเรียงตาม id
       ]);
       
       if (stopsRes.data) setStops(stopsRes.data);
       if (routesRes.data) setRoutes(routesRes.data);
+      if (vehiclesRes.data) setVehicles(vehiclesRes.data);
     }
     fetchMapData();
   }, []);
@@ -67,23 +72,20 @@ export default function TrackerPage() {
     };
   }, []);
 
-  // 3. วาดเส้นทางและป้ายจอดรถ (แยกการเช็คว่าวาดหรือยัง)
+  // 3. วาดเส้นทางและป้ายจอดรถ
   useEffect(() => {
     if (!mapRef.current || !LRef.current) return;
     const L = LRef.current;
     const map = mapRef.current;
     
-    // วาดเส้นทาง (GeoJSON) - ทำงานเมื่อมีข้อมูลและยังไม่ได้วาด
+    // วาดเส้นทาง
     if (routes.length > 0 && !routesDrawnRef.current) {
       routes.forEach((route) => {
         if (route.path_coordinates) {
            let geoData = route.path_coordinates;
            if(typeof geoData === 'string'){
-              try {
-                  geoData = JSON.parse(geoData);
-              } catch(e){
-                  console.error("Error parsing GeoJSON", e);
-              }
+              try { geoData = JSON.parse(geoData); } 
+              catch(e){ console.error("Error parsing GeoJSON", e); }
            }
 
           L.geoJSON(geoData, {
@@ -91,41 +93,21 @@ export default function TrackerPage() {
               return { color: route.color || '#4B0082', weight: 5, opacity: 0.8 };
             },
             pointToLayer: function (feature: any, latlng: any) {
-              return L.circleMarker(latlng, {
-                radius: 6, fillColor: '#8A2BE2', color: '#ffffff', weight: 2, fillOpacity: 1
-              });
+              return L.circleMarker(latlng, { radius: 6, fillColor: '#8A2BE2', color: '#ffffff', weight: 2, fillOpacity: 1 });
             }
           }).addTo(map);
         }
       });
-      routesDrawnRef.current = true; // บันทึกว่าวาดเส้นทางเสร็จแล้ว
+      routesDrawnRef.current = true;
     }
 
-    // วาดป้ายจอดรถ - ทำงานเมื่อมีข้อมูลและยังไม่ได้วาด
+    // วาดป้ายจอดรถ
     if (stops.length > 0 && !stopsDrawnRef.current) {
       stops.forEach((stop) => {
         if (stop.latitude && stop.longitude && stop.latitude !== 0) {
           const customStopIcon = L.divIcon({
             className: "custom-stop-marker",
-            html: `<div style="
-              background-color: white;
-              border: 3px solid #3B82F6;
-              border-radius: 50%;
-              width: 50px;
-              height: 50px;
-              display: flex;
-              align-items: center;
-              justify-content: center;
-              font-weight: bold;
-              font-size: 10px;
-              color: #1E3A8A;
-              box-shadow: 0px 3px 6px rgba(0,0,0,0.3);
-              text-align: center;
-              line-height: 1.1;
-              padding: 2px;
-            ">
-              ${stop.name}
-            </div>`,
+            html: `<div style="background-color: white; border: 3px solid #3B82F6; border-radius: 50%; width: 50px; height: 50px; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 10px; color: #1E3A8A; box-shadow: 0px 3px 6px rgba(0,0,0,0.3); text-align: center; line-height: 1.1; padding: 2px;">${stop.name}</div>`,
             iconSize: [50, 50],
             iconAnchor: [25, 25], 
           });
@@ -135,7 +117,7 @@ export default function TrackerPage() {
             .bindPopup(`<b>${stop.name}</b><br/>Code: ${stop.code}`);
         }
       });
-      stopsDrawnRef.current = true; // บันทึกว่าวาดป้ายเสร็จแล้ว
+      stopsDrawnRef.current = true;
     }
   }, [stops, routes]);
 
@@ -148,10 +130,15 @@ export default function TrackerPage() {
     }
   }, [coords, isTracking]);
 
-  // 5. ระบบส่งพิกัด
+  // 5. ระบบส่งพิกัด (ใช้ selectedVehicle.id ในการอัปเดต)
   const startTracking = () => {
     if (!navigator.geolocation) {
       alert("อุปกรณ์นี้ไม่รองรับการระบุตำแหน่ง");
+      return;
+    }
+
+    if (!selectedVehicle) {
+      alert("กรุณาเลือกรถก่อนเริ่มส่งพิกัด");
       return;
     }
 
@@ -165,27 +152,25 @@ export default function TrackerPage() {
         setSyncStatus("สัญญาณ GPS อัปเดต กำลังส่งเข้าฐานข้อมูล...");
 
         try {
+          // *** ใช้ selectedVehicle.id เพื่อส่งพิกัดให้ตรงคัน ***
           const { data, error } = await supabase
             .from("vehicles")
             .update({ latitude: latitude, longitude: longitude })
-            .eq("id", 1)
+            .eq("id", selectedVehicle.id) 
             .select(); 
 
           if (error) {
-            console.error("Supabase Error:", error);
             setSyncStatus(`❌ บันทึกไม่สำเร็จ: ${error.message}`);
           } else if (data && data.length === 0) {
-            setSyncStatus("⚠️ เชื่อมต่อได้ แต่ไม่พบข้อมูลรถที่มี id=1");
+            setSyncStatus(`⚠️ เชื่อมต่อได้ แต่ไม่พบข้อมูลรถ ID: ${selectedVehicle.id}`);
           } else {
             setSyncStatus(`✅ บันทึกลงฐานข้อมูลสำเร็จ (ล่าสุด: ${new Date().toLocaleTimeString('th-TH')})`);
           }
         } catch (err) {
-          console.error("Connection Error:", err);
           setSyncStatus(`❌ การเชื่อมต่ออินเทอร์เน็ตมีปัญหา`);
         }
       },
       (error) => {
-        console.error("GPS Error:", error);
         setSyncStatus(`❌ ดึงพิกัด GPS ไม่ได้: ${error.message}`);
       },
       { enableHighAccuracy: true, maximumAge: 0 }
@@ -203,53 +188,114 @@ export default function TrackerPage() {
     setSyncStatus("🛑 หยุดการทำงานชั่วคราว");
   };
 
+  // ฟังก์ชันเปลี่ยนรถ
+  const handleChangeVehicle = () => {
+    stopTracking();
+    setSelectedVehicle(null);
+    setSyncStatus("รอการเริ่มต้น...");
+  };
+
   return (
-    <div className="flex flex-col h-full bg-gray-50 p-2 md:p-4 gap-4">
-      <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 w-full text-center">
-        <h1 className="text-xl font-bold text-gray-800 mb-2">ระบบส่งพิกัดรถบัส</h1>
-        
-        <div className={`p-3 rounded-lg text-sm font-medium mb-4 ${
-          syncStatus.includes("✅") ? "bg-green-50 text-green-700 border border-green-200" :
-          syncStatus.includes("❌") ? "bg-red-50 text-red-700 border border-red-200" :
-          syncStatus.includes("⚠️") ? "bg-yellow-50 text-yellow-700 border border-yellow-200" :
-          "bg-blue-50 text-blue-700 border border-blue-200"
-        }`}>
-          {syncStatus}
-        </div>
-        
-        {isTracking && (
-          <div className="bg-gray-50 rounded-lg p-3 mb-4 text-sm text-gray-600 font-mono border border-gray-200">
-            พิกัดปัจจุบัน: <br/>
-            {coords.lat.toFixed(6)}, {coords.lng.toFixed(6)}
+    <>
+      {/* -------------------------------------------------------------
+          หน้าต่างเลือกรถ (แสดงทับแผนที่เมื่อยังไม่ได้เลือกรถ)
+      ------------------------------------------------------------- */}
+      {!selectedVehicle && (
+        <div className="fixed inset-0 z-[100] bg-gray-50 flex flex-col items-center justify-center p-4">
+          <div className="max-w-2xl w-full">
+            <h1 className="text-2xl md:text-3xl font-bold text-gray-800 text-center mb-2">เลือกรถที่คุณกำลังขับ</h1>
+            <p className="text-gray-500 text-center mb-8">เลือกรถบัสเพื่อเริ่มส่งพิกัด GPS เข้าสู่ระบบ</p>
+            
+            {vehicles.length === 0 ? (
+              <p className="text-center text-gray-400 py-10">กำลังโหลดข้อมูลรถ...</p>
+            ) : (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                {vehicles.map((v) => (
+                  <button
+                    key={v.id}
+                    onClick={() => setSelectedVehicle(v)}
+                    className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 hover:border-blue-500 hover:shadow-md transition-all flex flex-col items-center gap-3 group"
+                  >
+                    <div className="text-4xl group-hover:scale-110 transition-transform">🚌</div>
+                    <div className="text-center">
+                      <div className="font-bold text-gray-800 text-lg">{v.name}</div>
+                      <div className="text-xs text-gray-400">{v.code}</div>
+                    </div>
+                    <div className={`mt-2 text-xs font-semibold px-2 py-1 rounded-full ${v.status === 'ACTIVE' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
+                      {v.status}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
-        )}
+        </div>
+      )}
 
-        <div className="flex gap-2">
-          <button
-            onClick={startTracking}
-            disabled={isTracking}
-            className={`flex-1 py-3 rounded-xl font-bold text-white transition-colors ${
-              isTracking ? "bg-gray-300 cursor-not-allowed" : "bg-blue-600 hover:bg-blue-700 shadow-md"
-            }`}
-          >
-            ▶ เริ่มส่งพิกัด
-          </button>
+      {/* -------------------------------------------------------------
+          หน้าจอแผนที่และปุ่มควบคุม (ซ่อนตัวอยู่ถ้ายังไม่เลือกรถ)
+      ------------------------------------------------------------- */}
+      <div className={`flex flex-col h-full bg-gray-50 p-2 md:p-4 gap-4 ${!selectedVehicle ? 'opacity-0 pointer-events-none absolute' : 'opacity-100 static'}`}>
+        
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 w-full">
+          <div className="flex justify-between items-center mb-4 border-b border-gray-100 pb-4">
+            <div>
+              <h1 className="text-xl font-bold text-gray-800">ระบบส่งพิกัด: {selectedVehicle?.name}</h1>
+              <p className="text-xs text-gray-500">รหัสรถ: {selectedVehicle?.code}</p>
+            </div>
+            
+            {!isTracking && (
+              <button 
+                onClick={handleChangeVehicle}
+                className="text-sm px-3 py-2 bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200 transition-colors font-medium"
+              >
+                เปลี่ยนรถ
+              </button>
+            )}
+          </div>
           
-          <button
-            onClick={stopTracking}
-            disabled={!isTracking}
-            className={`flex-1 py-3 rounded-xl font-bold transition-colors ${
-              !isTracking ? "bg-gray-100 text-gray-400 cursor-not-allowed" : "bg-red-500 hover:bg-red-600 text-white shadow-md"
-            }`}
-          >
-            ⏹ หยุดส่ง
-          </button>
+          <div className={`p-3 rounded-lg text-sm font-medium mb-4 text-center ${
+            syncStatus.includes("✅") ? "bg-green-50 text-green-700 border border-green-200" :
+            syncStatus.includes("❌") ? "bg-red-50 text-red-700 border border-red-200" :
+            syncStatus.includes("⚠️") ? "bg-yellow-50 text-yellow-700 border border-yellow-200" :
+            "bg-blue-50 text-blue-700 border border-blue-200"
+          }`}>
+            {syncStatus}
+          </div>
+          
+          {isTracking && (
+            <div className="bg-gray-50 rounded-lg p-3 mb-4 text-sm text-gray-600 font-mono border border-gray-200 text-center">
+              พิกัด: {coords.lat.toFixed(6)}, {coords.lng.toFixed(6)}
+            </div>
+          )}
+
+          <div className="flex gap-2">
+            <button
+              onClick={startTracking}
+              disabled={isTracking}
+              className={`flex-1 py-3 rounded-xl font-bold text-white transition-colors shadow-sm ${
+                isTracking ? "bg-gray-300 cursor-not-allowed" : "bg-blue-600 hover:bg-blue-700"
+              }`}
+            >
+              ▶ เริ่มส่งพิกัด
+            </button>
+            
+            <button
+              onClick={stopTracking}
+              disabled={!isTracking}
+              className={`flex-1 py-3 rounded-xl font-bold transition-colors shadow-sm ${
+                !isTracking ? "bg-gray-100 text-gray-400 cursor-not-allowed" : "bg-red-500 hover:bg-red-600 text-white"
+              }`}
+            >
+              ⏹ หยุดส่ง
+            </button>
+          </div>
+        </div>
+
+        <div className="flex-1 bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden min-h-[350px] relative z-0">
+          <div ref={mapContainer} className="w-full h-full" />
         </div>
       </div>
-
-      <div className="flex-1 bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden min-h-[350px] relative z-0">
-        <div ref={mapContainer} className="w-full h-full" />
-      </div>
-    </div>
+    </>
   );
 }
