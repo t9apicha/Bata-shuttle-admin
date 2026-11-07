@@ -15,8 +15,8 @@ export default function TrackerPage() {
   const [stops, setStops] = useState<any[]>([]);
   const [routes, setRoutes] = useState<any[]>([]);
   
-  const stopsDrawnRef = useRef(false); 
-  const routesDrawnRef = useRef(false);
+  // ใช้ LayerGroup แบบเดียวกับหน้า Dashboard เพื่อป้องกันแผนที่หายเวลาสลับหน้าจอ
+  const staticLayersRef = useRef<any>(null); 
 
   const mapRef = useRef<any>(null);
   const markerRef = useRef<any>(null);
@@ -50,6 +50,9 @@ export default function TrackerPage() {
           attribution: '&copy; OpenStreetMap',
         }).addTo(map);
 
+        // สร้าง Group สำหรับจัดเก็บ ป้าย และ เส้นทาง โดยเฉพาะ
+        staticLayersRef.current = L.layerGroup().addTo(map);
+
         const busIcon = L.divIcon({
           className: "custom-bus-icon",
           html: `<div style="font-size: 24px; filter: drop-shadow(0px 2px 4px rgba(0,0,0,0.5)); transition: transform 1s linear;">🚌</div>`,
@@ -67,69 +70,69 @@ export default function TrackerPage() {
       if (mapRef.current) {
         mapRef.current.remove();
         mapRef.current = null;
+        staticLayersRef.current = null;
       }
     };
   }, []);
 
-  // 🔥 2.5 แก้บั๊กแผนที่ขอบเทา: เมื่อคนขับเลือกรถเสร็จ ให้แผนที่รีเฟรชขนาดตัวเอง
+  // 2.5 แก้บั๊กแผนที่ขอบเทา: เมื่อคนขับเลือกรถเสร็จ ให้แผนที่รีเฟรชขนาดตัวเอง
   useEffect(() => {
     if (selectedVehicle && mapRef.current) {
-      // หน่วงเวลาให้ CSS ทำงานเสร็จ 0.3 วินาที แล้วค่อยสั่งคำนวณใหม่
       setTimeout(() => {
         mapRef.current.invalidateSize();
       }, 300);
     }
   }, [selectedVehicle]);
 
-  // 3. วาดเส้นทาง
+  // 3. วาดเส้นทางและป้ายจอดรถ (ลบของเก่าแล้ววาดใหม่เสมอ)
   useEffect(() => {
-    if (!mapRef.current || !LRef.current || routesDrawnRef.current || routes.length === 0) return;
+    if (!mapRef.current || !LRef.current || !staticLayersRef.current) return;
     const L = LRef.current;
-    const map = mapRef.current;
+    const staticGroup = staticLayersRef.current;
     
-    routes.forEach((route) => {
-      if (route.path_coordinates) {
-         let geoData = route.path_coordinates;
-         if(typeof geoData === 'string'){
-            try { geoData = JSON.parse(geoData); } 
-            catch(e){}
-         }
+    // เคลียร์เลเยอร์ป้ายและเส้นทางเก่าออกก่อนวาดใหม่ (ป้องกันการวาดทับและบั๊กหาย)
+    staticGroup.clearLayers();
 
-        L.geoJSON(geoData, {
-          style: function () {
-            return { color: route.color || '#4B0082', weight: 5, opacity: 0.8 };
-          },
-          pointToLayer: function (feature: any, latlng: any) {
-            return L.circleMarker(latlng, { radius: 6, fillColor: '#8A2BE2', color: '#ffffff', weight: 2, fillOpacity: 1 });
-          }
-        }).addTo(map);
-      }
-    });
-    routesDrawnRef.current = true;
-  }, [routes]);
+    // วาดเส้นทาง
+    if (routes && routes.length > 0) {
+      routes.forEach((route) => {
+        if (route.path_coordinates) {
+           let geoData = route.path_coordinates;
+           if(typeof geoData === 'string'){
+              try { geoData = JSON.parse(geoData); } 
+              catch(e){}
+           }
 
-  // 3.5 วาดป้ายจอดรถ
-  useEffect(() => {
-    if (!mapRef.current || !LRef.current || stopsDrawnRef.current || stops.length === 0) return;
-    const L = LRef.current;
-    const map = mapRef.current;
+          L.geoJSON(geoData, {
+            style: function () {
+              return { color: route.color || '#4B0082', weight: 5, opacity: 0.8 };
+            },
+            pointToLayer: function (feature: any, latlng: any) {
+              return L.circleMarker(latlng, { radius: 6, fillColor: '#8A2BE2', color: '#ffffff', weight: 2, fillOpacity: 1 });
+            }
+          }).addTo(staticGroup); // ใส่เข้าไปใน LayerGroup
+        }
+      });
+    }
 
-    stops.forEach((stop) => {
-      if (stop.latitude && stop.longitude && stop.latitude !== 0) {
-        const customStopIcon = L.divIcon({
-          className: "custom-stop-marker",
-          html: `<div style="background-color: white; border: 3px solid #3B82F6; border-radius: 50%; width: 50px; height: 50px; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 10px; color: #1E3A8A; box-shadow: 0px 3px 6px rgba(0,0,0,0.3); text-align: center; line-height: 1.1; padding: 2px;">${stop.name}</div>`,
-          iconSize: [50, 50],
-          iconAnchor: [25, 25], 
-        });
+    // วาดป้ายจอดรถ
+    if (stops && stops.length > 0) {
+      stops.forEach((stop) => {
+        if (stop.latitude && stop.longitude && stop.latitude !== 0) {
+          const customStopIcon = L.divIcon({
+            className: "custom-stop-marker",
+            html: `<div style="background-color: white; border: 3px solid #3B82F6; border-radius: 50%; width: 50px; height: 50px; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 10px; color: #1E3A8A; box-shadow: 0px 3px 6px rgba(0,0,0,0.3); text-align: center; line-height: 1.1; padding: 2px;">${stop.name}</div>`,
+            iconSize: [50, 50],
+            iconAnchor: [25, 25], 
+          });
 
-        L.marker([stop.latitude, stop.longitude], { icon: customStopIcon })
-          .addTo(map)
-          .bindPopup(`<b>${stop.name}</b><br/>Code: ${stop.code}`);
-      }
-    });
-    stopsDrawnRef.current = true;
-  }, [stops]);
+          L.marker([stop.latitude, stop.longitude], { icon: customStopIcon })
+            .bindPopup(`<b>${stop.name}</b><br/>Code: ${stop.code}`)
+            .addTo(staticGroup); // ใส่เข้าไปใน LayerGroup
+        }
+      });
+    }
+  }, [stops, routes, selectedVehicle]); // เพิ่ม selectedVehicle เพื่อให้มันวาดทุกครั้งที่กดเลือกรถเข้าแผนที่
 
   // 4. อัปเดตตำแหน่งหมุดเมื่อ GPS ขยับ
   useEffect(() => {
