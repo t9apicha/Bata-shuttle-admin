@@ -11,21 +11,26 @@ export default function TrackerPage() {
 
   const [stops, setStops] = useState<any[]>([]);
   const [routes, setRoutes] = useState<any[]>([]);
-  const dataDrawnRef = useRef(false); 
+  
+  // แยกตัวแปรเช็คสถานะการวาดแผนที่ออกจากกัน
+  const stopsDrawnRef = useRef(false); 
+  const routesDrawnRef = useRef(false);
 
   const mapRef = useRef<any>(null);
   const markerRef = useRef<any>(null);
   const mapContainer = useRef<HTMLDivElement>(null);
   const LRef = useRef<any>(null); 
 
-  // 1. ดึงข้อมูลจุดจอดและเส้นทาง
+  // 1. ดึงข้อมูลจุดจอดและเส้นทาง (โหลดพร้อมกัน)
   useEffect(() => {
     async function fetchMapData() {
-      const { data: stopsData } = await supabase.from("stops").select("*").eq("isActive", true);
-      if (stopsData) setStops(stopsData);
-
-      const { data: routesData } = await supabase.from("routes").select("*").eq("isActive", true);
-      if (routesData) setRoutes(routesData);
+      const [stopsRes, routesRes] = await Promise.all([
+        supabase.from("stops").select("*").eq("isActive", true),
+        supabase.from("routes").select("*").eq("isActive", true)
+      ]);
+      
+      if (stopsRes.data) setStops(stopsRes.data);
+      if (routesRes.data) setRoutes(routesRes.data);
     }
     fetchMapData();
   }, []);
@@ -62,43 +67,42 @@ export default function TrackerPage() {
     };
   }, []);
 
-  // 3. วาดเส้นทางและป้ายจอดรถแบบเดียวกับ Map.tsx
+  // 3. วาดเส้นทางและป้ายจอดรถ (แยกการเช็คว่าวาดหรือยัง)
   useEffect(() => {
-    if (!mapRef.current || !LRef.current || dataDrawnRef.current) return;
+    if (!mapRef.current || !LRef.current) return;
+    const L = LRef.current;
+    const map = mapRef.current;
     
-    if (stops.length > 0 || routes.length > 0) {
-      const L = LRef.current;
-      const map = mapRef.current;
-
-      // วาดเส้นทาง (GeoJSON)
-      if (routes && routes.length > 0) {
-        routes.forEach((route) => {
-          if (route.path_coordinates) {
-             let geoData = route.path_coordinates;
-             // แปลงข้อมูลถ้าถูกเก็บมาในรูป string
-             if(typeof geoData === 'string'){
-                try {
-                    geoData = JSON.parse(geoData);
-                } catch(e){
-                    console.error("Error parsing GeoJSON", e);
-                }
-             }
-
-            L.geoJSON(geoData, {
-              style: function () {
-                return { color: route.color || '#4B0082', weight: 5, opacity: 0.8 };
-              },
-              pointToLayer: function (feature: any, latlng: any) {
-                return L.circleMarker(latlng, {
-                  radius: 6, fillColor: '#8A2BE2', color: '#ffffff', weight: 2, fillOpacity: 1
-                });
+    // วาดเส้นทาง (GeoJSON) - ทำงานเมื่อมีข้อมูลและยังไม่ได้วาด
+    if (routes.length > 0 && !routesDrawnRef.current) {
+      routes.forEach((route) => {
+        if (route.path_coordinates) {
+           let geoData = route.path_coordinates;
+           if(typeof geoData === 'string'){
+              try {
+                  geoData = JSON.parse(geoData);
+              } catch(e){
+                  console.error("Error parsing GeoJSON", e);
               }
-            }).addTo(map);
-          }
-        });
-      }
+           }
 
-      // วาดป้ายจอดรถ
+          L.geoJSON(geoData, {
+            style: function () {
+              return { color: route.color || '#4B0082', weight: 5, opacity: 0.8 };
+            },
+            pointToLayer: function (feature: any, latlng: any) {
+              return L.circleMarker(latlng, {
+                radius: 6, fillColor: '#8A2BE2', color: '#ffffff', weight: 2, fillOpacity: 1
+              });
+            }
+          }).addTo(map);
+        }
+      });
+      routesDrawnRef.current = true; // บันทึกว่าวาดเส้นทางเสร็จแล้ว
+    }
+
+    // วาดป้ายจอดรถ - ทำงานเมื่อมีข้อมูลและยังไม่ได้วาด
+    if (stops.length > 0 && !stopsDrawnRef.current) {
       stops.forEach((stop) => {
         if (stop.latitude && stop.longitude && stop.latitude !== 0) {
           const customStopIcon = L.divIcon({
@@ -131,8 +135,7 @@ export default function TrackerPage() {
             .bindPopup(`<b>${stop.name}</b><br/>Code: ${stop.code}`);
         }
       });
-
-      dataDrawnRef.current = true; 
+      stopsDrawnRef.current = true; // บันทึกว่าวาดป้ายเสร็จแล้ว
     }
   }, [stops, routes]);
 
