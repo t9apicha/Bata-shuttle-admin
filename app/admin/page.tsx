@@ -5,44 +5,36 @@ import { supabase } from "@/lib/supabase";
 import { Bus, Route, MapPin, Activity, LogOut } from "lucide-react";
 import dynamic from "next/dynamic";
 
-// โหลดคอมโพเนนต์แผนที่แบบปิด SSR (Server-Side Rendering) เพราะใช้ไลบรารี Leaflet
 const MapComponent = dynamic(() => import("@/components/Map"), {
   ssr: false,
   loading: () => (
-    <div className="h-full w-full bg-gray-50 flex items-center justify-center text-gray-400 text-sm">
-      กำลังโหลดแผนที่...
+    <div className="h-full w-full bg-slate-50 flex flex-col items-center justify-center text-slate-400 text-sm rounded-2xl border border-slate-100">
+      <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-3"></div>
+      กำลังโหลดแผนที่ระบบขนส่ง...
     </div>
   ),
 });
 
 export default function Dashboard() {
   const router = useRouter();
-  
-  // สถานะตรวจสอบสิทธิ์ (ป้องกันอาการหน้าเว็บกระพริบหรือเด้งหลุดเอง)
   const [isAuthorized, setIsAuthorized] = useState(false);
-
-  // States สำหรับเก็บข้อมูลสถิติและพิกัดต่างๆ
   const [stats, setStats] = useState({ vehicles: 0, routes: 0, stops: 0, activeVehicles: 0 });
   const [stops, setStops] = useState<any[]>([]);
   const [routes, setRoutes] = useState<any[]>([]);
   const [vehiclesList, setVehiclesList] = useState<any[]>([]);
 
-  // 1. ระบบตรวจสอบสิทธิ์ (Auth Guard): เช็คว่าถ้าไม่ใช่แอดมิน ให้ดีดกลับหน้าแรกสุด
   useEffect(() => {
     const role = localStorage.getItem("userRole");
     if (role !== "admin") {
       router.push("/");
     } else {
-      setIsAuthorized(true); // อนุญาตให้แสดงหน้าเว็บเมื่อตรวจสอบว่าเป็นแอดมินจริง
+      setIsAuthorized(true);
     }
   }, [router]);
 
-  // 2. ดึงข้อมูลภาพรวมและตั้งค่า Real-time ดักฟังพิกัดรถจาก Supabase
   useEffect(() => {
-    if (!isAuthorized) return; // ทำงานต่อเมื่อผ่านการตรวจสอบสิทธิ์แล้วเท่านั้น
-
+    if (!isAuthorized) return;
     async function fetchDashboardData() {
-      // ดึงจำนวนนับของรถ, เส้นทาง, ป้ายจอด และรถที่กำลังวิ่งอยู่
       const { count: vehicleCount } = await supabase.from("vehicles").select("*", { count: "exact", head: true });
       const { count: routeCount } = await supabase.from("routes").select("*", { count: "exact", head: true });
       const { count: stopCount } = await supabase.from("stops").select("*", { count: "exact", head: true });
@@ -55,124 +47,147 @@ export default function Dashboard() {
         activeVehicles: activeCount || 0,
       });
 
-      // ดึงข้อมูลป้ายรถเมล์และเส้นทางที่เปิดใช้งาน
       const { data: stopsData } = await supabase.from("stops").select("*").eq("isActive", true);
       if (stopsData) setStops(stopsData);
-
       const { data: routesData } = await supabase.from("routes").select("*").eq("isActive", true);
       if (routesData) setRoutes(routesData);
-
-      // ดึงรายการรถทั้งหมดเพื่อแสดงตำแหน่งเริ่มต้นบนแผนที่
       const { data: vehiclesData } = await supabase.from("vehicles").select("*");
       if (vehiclesData) setVehiclesList(vehiclesData);
     }
-
     fetchDashboardData();
 
-    // ระบบ Real-time: อัปเดตตำแหน่งพิกัดรถบนแผนแบบเรียลไทม์เมื่อมีการขยับ
     const channel = supabase
       .channel('realtime-vehicles')
-      .on(
-        'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'vehicles' },
-        (payload) => {
-          setVehiclesList((prev) => 
-            prev.map((v) => v.id === payload.new.id ? { ...v, ...payload.new } : v)
-          );
-        }
-      )
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'vehicles' }, (payload) => {
+          setVehiclesList((prev) => prev.map((v) => v.id === payload.new.id ? { ...v, ...payload.new } : v));
+      })
       .subscribe();
-
-    // ล้างช่องสัญญาณ Real-time เมื่อผู้ใช้ออกจากหน้าเว็บ
-    return () => {
-      supabase.removeChannel(channel); 
-    };
+    return () => { supabase.removeChannel(channel); };
   }, [isAuthorized]);
 
-  // 3. ฟังก์ชันจัดการการออกจากระบบ: ล้างค่าใน LocalStorage และพาเด้งกลับหน้าแรกสุด
   const handleLogout = () => {
     localStorage.clear();
     router.push("/");
   };
 
-  // ถ้าระหว่างเช็คสิทธิ์ยังไม่เสร็จ ให้แสดงหน้าต่างโหลดสั้นๆ เพื่อกันหน้าจอพัง
   if (!isAuthorized) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center text-gray-500 font-medium">
-        กำลังตรวจสอบสิทธิ์การเข้าใช้งาน...
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+        <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
-      {/* ส่วนหัวหน้า Dashboard และปุ่มออกจากระบบ */}
-      <div className="flex justify-between items-center">
+    <div className="min-h-screen bg-slate-50/50 p-6 space-y-8">
+      
+      {/* Header Section */}
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
         <div>
-          <h1 className="text-2xl font-bold text-gray-800">Dashboard</h1>
-          <p className="text-gray-500 text-sm">Overview of the ShuttleTrack system</p>
+          <h1 className="text-2xl font-black text-slate-800 tracking-tight">Dashboard Overview</h1>
+          <p className="text-slate-500 text-sm mt-1">ติดตามสถานะรถรับส่งและเส้นทางทั้งหมดในระบบ ShuttleTrack RSU</p>
         </div>
         <button 
           onClick={handleLogout}
-          className="flex items-center gap-2 px-4 py-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-colors font-semibold text-sm border border-red-100 shadow-sm"
+          className="flex items-center gap-2 px-5 py-2.5 bg-rose-50 text-rose-600 hover:bg-rose-100 hover:text-rose-700 rounded-xl transition-all duration-200 font-semibold text-sm border border-rose-100/50 hover:shadow-sm"
         >
           <LogOut className="w-4 h-4" />
           ออกจากระบบ
         </button>
       </div>
 
-      {/* แผงแสดงสถิติตัวเลขภาพรวม (Total Vehicles, Routes, Stops, Live Vehicles) */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        {/* การ์ดแสดงจำนวนรถทั้งหมด */}
-        <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm flex items-center gap-4">
-          <div className="bg-blue-500 p-3 rounded-xl text-white"><Bus className="w-6 h-6" /></div>
-          <div>
-            <p className="text-2xl font-bold text-gray-800">{stats.vehicles}</p>
-            <p className="text-xs font-medium text-gray-400">Total Vehicles</p>
-            <span className="text-[10px] text-blue-600 font-semibold">{stats.activeVehicles} active</span>
+      {/* Statistics Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+        {/* Card 1: Total Vehicles */}
+        <div className="bg-white p-6 rounded-2xl shadow-[0_2px_10px_-3px_rgba(6,81,237,0.1)] border border-blue-50/50 transition-transform duration-300 hover:-translate-y-1">
+          <div className="flex justify-between items-start">
+            <div>
+              <p className="text-slate-400 text-xs font-bold uppercase tracking-wider mb-1">ยานพาหนะทั้งหมด</p>
+              <h3 className="text-3xl font-black text-slate-800">{stats.vehicles}</h3>
+            </div>
+            <div className="p-3 bg-blue-50 text-blue-600 rounded-xl">
+              <Bus className="w-6 h-6" />
+            </div>
+          </div>
+          <div className="mt-4 flex items-center gap-2 text-sm">
+            <span className="flex h-2 w-2 rounded-full bg-blue-500"></span>
+            <span className="text-slate-600 font-medium">{stats.activeVehicles} คัน พร้อมใช้งาน</span>
           </div>
         </div>
 
-        {/* การ์ดแสดงจำนวนเส้นทางทั้งหมด */}
-        <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm flex items-center gap-4">
-          <div className="bg-emerald-500 p-3 rounded-xl text-white"><Route className="w-6 h-6" /></div>
-          <div>
-            <p className="text-2xl font-bold text-gray-800">{stats.routes}</p>
-            <p className="text-xs font-medium text-gray-400">Total Routes</p>
-            <span className="text-[10px] text-emerald-600 font-semibold">In system</span>
+        {/* Card 2: Total Routes */}
+        <div className="bg-white p-6 rounded-2xl shadow-[0_2px_10px_-3px_rgba(16,185,129,0.1)] border border-emerald-50/50 transition-transform duration-300 hover:-translate-y-1">
+          <div className="flex justify-between items-start">
+            <div>
+              <p className="text-slate-400 text-xs font-bold uppercase tracking-wider mb-1">เส้นทางวิ่งรถ</p>
+              <h3 className="text-3xl font-black text-slate-800">{stats.routes}</h3>
+            </div>
+            <div className="p-3 bg-emerald-50 text-emerald-600 rounded-xl">
+              <Route className="w-6 h-6" />
+            </div>
+          </div>
+          <div className="mt-4 flex items-center gap-2 text-sm">
+             <span className="flex h-2 w-2 rounded-full bg-emerald-500"></span>
+            <span className="text-slate-600 font-medium">เปิดให้บริการในระบบ</span>
           </div>
         </div>
 
-        {/* การ์ดแสดงจำนวนป้ายจอดทั้งหมด */}
-        <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm flex items-center gap-4">
-          <div className="bg-amber-500 p-3 rounded-xl text-white"><MapPin className="w-6 h-6" /></div>
-          <div>
-            <p className="text-2xl font-bold text-gray-800">{stats.stops}</p>
-            <p className="text-xs font-medium text-gray-400">Total Stops</p>
-            <span className="text-[10px] text-amber-600 font-semibold">In system</span>
+        {/* Card 3: Total Stops */}
+        <div className="bg-white p-6 rounded-2xl shadow-[0_2px_10px_-3px_rgba(245,158,11,0.1)] border border-amber-50/50 transition-transform duration-300 hover:-translate-y-1">
+          <div className="flex justify-between items-start">
+            <div>
+              <p className="text-slate-400 text-xs font-bold uppercase tracking-wider mb-1">จุดจอดรับ-ส่ง</p>
+              <h3 className="text-3xl font-black text-slate-800">{stats.stops}</h3>
+            </div>
+            <div className="p-3 bg-amber-50 text-amber-600 rounded-xl">
+              <MapPin className="w-6 h-6" />
+            </div>
+          </div>
+          <div className="mt-4 flex items-center gap-2 text-sm">
+            <span className="flex h-2 w-2 rounded-full bg-amber-500"></span>
+            <span className="text-slate-600 font-medium">กระจายตามจุดต่างๆ</span>
           </div>
         </div>
 
-        {/* การ์ดแสดงจำนวนรถที่กำลังวิ่งอยู่แบบ Live */}
-        <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm flex items-center gap-4">
-          <div className="bg-purple-500 p-3 rounded-xl text-white"><Activity className="w-6 h-6" /></div>
-          <div>
-            <p className="text-2xl font-bold text-gray-800">{stats.activeVehicles}</p>
-            <p className="text-xs font-medium text-gray-400">Live Vehicles</p>
-            <span className="text-[10px] text-purple-600 font-semibold">Running now</span>
+        {/* Card 4: Live Vehicles */}
+        <div className="bg-white p-6 rounded-2xl shadow-[0_2px_10px_-3px_rgba(139,92,246,0.1)] border border-purple-50/50 transition-transform duration-300 hover:-translate-y-1">
+          <div className="flex justify-between items-start">
+            <div>
+              <p className="text-slate-400 text-xs font-bold uppercase tracking-wider mb-1">กำลังวิ่งให้บริการ</p>
+              <h3 className="text-3xl font-black text-slate-800">{stats.activeVehicles}</h3>
+            </div>
+            <div className="p-3 bg-purple-50 text-purple-600 rounded-xl">
+              <Activity className="w-6 h-6" />
+            </div>
+          </div>
+          <div className="mt-4 flex items-center gap-2 text-sm">
+            <span className="flex h-2 w-2 rounded-full bg-purple-500 animate-pulse"></span>
+            <span className="text-purple-600 font-semibold tracking-wide">Real-time ทั่ววิทยาเขต</span>
           </div>
         </div>
       </div>
 
-      {/* ส่วนแสดงแผนที่และการเคลื่อนที่ของรถแบบเรียลไทม์ */}
-      <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-        <h2 className="font-bold text-gray-800 mb-1">Stops & Live Locations</h2>
-        <p className="text-xs text-gray-400 mb-4">Vehicle markers & stop locations on map</p>
+      {/* Map Section */}
+      <div className="bg-white p-6 sm:p-8 rounded-3xl shadow-sm border border-slate-100 flex flex-col">
+        <div className="mb-6 flex justify-between items-end">
+          <div>
+            <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+              <MapPin className="w-5 h-5 text-blue-500" />
+              Live Map Tracking
+            </h2>
+            <p className="text-slate-500 text-sm mt-1">แสดงตำแหน่งรถบัสที่กำลังวิ่งและจุดจอดต่างๆ บนแผนที่จริง</p>
+          </div>
+          <div className="hidden sm:flex items-center gap-4 text-xs font-medium text-slate-500">
+             <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-blue-500"></span> รถบัส</div>
+             <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-amber-500"></span> จุดจอด</div>
+          </div>
+        </div>
 
-        <div className="h-[450px] w-full rounded-xl overflow-hidden border border-gray-200 relative z-0">
+        <div className="h-[500px] w-full rounded-2xl overflow-hidden border border-slate-200/60 shadow-inner relative z-0">
           <MapComponent stops={stops} routes={routes} vehicles={vehiclesList} />
         </div>
       </div>
+      
     </div>
   );
 }
