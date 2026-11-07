@@ -1,20 +1,29 @@
 "use client";
 import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
 import Sidebar from "./Sidebar";
 
 export default function ClientLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  
-  // เช็คว่าถ้าเป็นหน้าแรกสุด (/) หรือ /login ให้ซ่อน Sidebar ทันที
-  const isAuthPage = pathname === "/" || pathname === "/login";
+  const [userRole, setUserRole] = useState<string | null>(null);
 
-  if (isAuthPage) {
+  // คอยเช็คสิทธิ์จาก localStorage ทุกครั้งที่เปลี่ยนหน้า
+  useEffect(() => {
+    const role = localStorage.getItem("userRole");
+    setUserRole(role);
+  }, [pathname]);
+  
+  // เงื่อนไขการซ่อน Sidebar:
+  // 1. ถ้าอยู่หน้าแรกสุด (/) หรือหน้า /tracker (หน้าคนขับ) ให้ซ่อน Sidebar ทันที
+  const isAuthOrDriverPage = pathname === "/" || pathname === "/tracker";
+
+  if (isAuthOrDriverPage) {
     return <main className="w-full min-h-screen">{children}</main>;
   }
 
   return (
     <>
-      {/* แถบเมนูด้านซ้าย (แสดงเฉพาะตอนเข้าสู่ระบบแล้ว เช่น หน้าแอดมิน) */}
+      {/* แสดง Sidebar เฉพาะแอดมินที่อยู่ในโซน /admin เท่านั้น */}
       <Sidebar />
       
       {/* เนื้อหาหลัก */}
