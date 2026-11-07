@@ -1,5 +1,4 @@
 "use client";
-
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { Bus, Route, MapPin, Activity } from "lucide-react";
@@ -15,54 +14,60 @@ const MapComponent = dynamic(() => import("@/components/Map"), {
 });
 
 export default function Dashboard() {
-  const [stats, setStats] = useState({
-    vehicles: 0,
-    routes: 0,
-    stops: 0,
-    activeVehicles: 0,
-  });
+  const [stats, setStats] = useState({ vehicles: 0, routes: 0, stops: 0, activeVehicles: 0 });
   const [stops, setStops] = useState<any[]>([]);
-  const [routes, setRoutes] = useState<any[]>([]); // เพิ่ม State เก็บเส้นทาง
+  const [routes, setRoutes] = useState<any[]>([]);
+  
+  // เพิ่ม State สำหรับเก็บข้อมูลรถจริงๆ เพื่อส่งไปวาดบนแผนที่
+  const [vehiclesList, setVehiclesList] = useState<any[]>([]);
 
   useEffect(() => {
     async function fetchDashboardData() {
-      const { count: vehicleCount } = await supabase
-        .from("vehicles")
-        .select("*", { count: "exact", head: true });
-      const { count: routeCount } = await supabase
-        .from("routes")
-        .select("*", { count: "exact", head: true });
-      const { count: stopCount } = await supabase
-        .from("stops")
-        .select("*", { count: "exact", head: true });
-      const { count: activeCount } = await supabase
-        .from("vehicles")
-        .select("*", { count: "exact", head: true })
-        .eq("status", "ACTIVE");
+      // ดึงสถิติตัวเลข
+      const { count: vehicleCount } = await supabase.from("vehicles").select("*", { count: "exact", head: true });
+      const { count: routeCount } = await supabase.from("routes").select("*", { count: "exact", head: true });
+      const { count: stopCount } = await supabase.from("stops").select("*", { count: "exact", head: true });
+      const { count: activeCount } = await supabase.from("vehicles").select("*", { count: "exact", head: true }).eq("status", "ACTIVE");
 
       setStats({
-        vehicles: vehicleCount || 0,
-        routes: routeCount || 0,
-        stops: stopCount || 0,
-        activeVehicles: activeCount || 0,
+        vehicles: vehicleCount || 0, routes: routeCount || 0, stops: stopCount || 0, activeVehicles: activeCount || 0,
       });
 
-      // ดึงข้อมูลจุดจอด
-      const { data: stopsData } = await supabase
-        .from("stops")
-        .select("*")
-        .eq("isActive", true);
+      // ดึงข้อมูลแผนที่เริ่มต้น
+      const { data: stopsData } = await supabase.from("stops").select("*").eq("isActive", true);
       if (stopsData) setStops(stopsData);
 
-      // ดึงข้อมูลสายรถ (เพื่อเอา GeoJSON ใน path_coordinates มาวาดเส้น)
-      const { data: routesData } = await supabase
-        .from("routes")
-        .select("*")
-        .eq("isActive", true);
+      const { data: routesData } = await supabase.from("routes").select("*").eq("isActive", true);
       if (routesData) setRoutes(routesData);
+
+      // ดึงพิกัดรถล่าสุดมาแสดง
+      const { data: vehiclesData } = await supabase.from("vehicles").select("*");
+      if (vehiclesData) setVehiclesList(vehiclesData);
     }
 
     fetchDashboardData();
+
+    // -----------------------------------------------------------------
+    // 🔥 ระบบ Real-time: ดักฟังการขยับของรถจากฐานข้อมูล
+    // -----------------------------------------------------------------
+    const channel = supabase
+      .channel('realtime-vehicles')
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'vehicles' },
+        (payload) => {
+          console.log("พิกัดรถอัปเดต!", payload.new);
+          // อัปเดตพิกัดรถใน State เมื่อมีการขยับ
+          setVehiclesList((prev) => 
+            prev.map((v) => v.id === payload.new.id ? { ...v, ...payload.new } : v)
+          );
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel); // ล้างหน่วยความจำตอนปิดหน้า
+    };
   }, []);
 
   return (
@@ -74,9 +79,7 @@ export default function Dashboard() {
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm flex items-center gap-4">
-          <div className="bg-blue-500 p-3 rounded-xl text-white">
-            <Bus className="w-6 h-6" />
-          </div>
+          <div className="bg-blue-500 p-3 rounded-xl text-white"><Bus className="w-6 h-6" /></div>
           <div>
             <p className="text-2xl font-bold text-gray-800">{stats.vehicles}</p>
             <p className="text-xs font-medium text-gray-400">Total Vehicles</p>
@@ -85,9 +88,7 @@ export default function Dashboard() {
         </div>
 
         <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm flex items-center gap-4">
-          <div className="bg-emerald-500 p-3 rounded-xl text-white">
-            <Route className="w-6 h-6" />
-          </div>
+          <div className="bg-emerald-500 p-3 rounded-xl text-white"><Route className="w-6 h-6" /></div>
           <div>
             <p className="text-2xl font-bold text-gray-800">{stats.routes}</p>
             <p className="text-xs font-medium text-gray-400">Total Routes</p>
@@ -96,9 +97,7 @@ export default function Dashboard() {
         </div>
 
         <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm flex items-center gap-4">
-          <div className="bg-amber-500 p-3 rounded-xl text-white">
-            <MapPin className="w-6 h-6" />
-          </div>
+          <div className="bg-amber-500 p-3 rounded-xl text-white"><MapPin className="w-6 h-6" /></div>
           <div>
             <p className="text-2xl font-bold text-gray-800">{stats.stops}</p>
             <p className="text-xs font-medium text-gray-400">Total Stops</p>
@@ -107,9 +106,7 @@ export default function Dashboard() {
         </div>
 
         <div className="bg-white p-5 rounded-2xl border border-gray-100 shadow-sm flex items-center gap-4">
-          <div className="bg-purple-500 p-3 rounded-xl text-white">
-            <Activity className="w-6 h-6" />
-          </div>
+          <div className="bg-purple-500 p-3 rounded-xl text-white"><Activity className="w-6 h-6" /></div>
           <div>
             <p className="text-2xl font-bold text-gray-800">{stats.activeVehicles}</p>
             <p className="text-xs font-medium text-gray-400">Live Vehicles</p>
@@ -123,8 +120,8 @@ export default function Dashboard() {
         <p className="text-xs text-gray-400 mb-4">Vehicle markers & stop locations on map</p>
 
         <div className="h-[450px] w-full rounded-xl overflow-hidden border border-gray-200 relative z-0">
-          {/* ส่ง routes ลงไปให้ Map วาดเส้นทาง */}
-          <MapComponent stops={stops} routes={routes} />
+          {/* ส่ง vehicles ลงไปใน MapComponent เพื่อวาดหมุดแบบเรียลไทม์ */}
+          <MapComponent stops={stops} routes={routes} vehicles={vehiclesList} />
         </div>
       </div>
     </div>
