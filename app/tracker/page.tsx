@@ -4,7 +4,6 @@ import { supabase } from "@/lib/supabase";
 import "leaflet/dist/leaflet.css";
 
 export default function TrackerPage() {
-  // --- เพิ่ม State สำหรับเก็บข้อมูลรถและการเลือกรถ ---
   const [vehicles, setVehicles] = useState<any[]>([]);
   const [selectedVehicle, setSelectedVehicle] = useState<any | null>(null);
 
@@ -24,13 +23,13 @@ export default function TrackerPage() {
   const mapContainer = useRef<HTMLDivElement>(null);
   const LRef = useRef<any>(null); 
 
-  // 1. ดึงข้อมูลรถ, จุดจอด, และเส้นทาง
+  // 1. ดึงข้อมูลทั้งหมด
   useEffect(() => {
     async function fetchMapData() {
       const [stopsRes, routesRes, vehiclesRes] = await Promise.all([
         supabase.from("stops").select("*").eq("isActive", true),
         supabase.from("routes").select("*").eq("isActive", true),
-        supabase.from("vehicles").select("*").order("id", { ascending: true }) // ดึงรถทั้งหมดเรียงตาม id
+        supabase.from("vehicles").select("*").order("id", { ascending: true })
       ]);
       
       if (stopsRes.data) setStops(stopsRes.data);
@@ -40,7 +39,7 @@ export default function TrackerPage() {
     fetchMapData();
   }, []);
 
-  // 2. สร้างแผนที่หลักและหมุดรถบัส
+  // 2. สร้างแผนที่หลัก
   useEffect(() => {
     if (typeof window !== "undefined" && mapContainer.current && !mapRef.current) {
       import("leaflet").then((L) => {
@@ -72,54 +71,65 @@ export default function TrackerPage() {
     };
   }, []);
 
-  // 3. วาดเส้นทางและป้ายจอดรถ
+  // 🔥 2.5 แก้บั๊กแผนที่ขอบเทา: เมื่อคนขับเลือกรถเสร็จ ให้แผนที่รีเฟรชขนาดตัวเอง
   useEffect(() => {
-    if (!mapRef.current || !LRef.current) return;
+    if (selectedVehicle && mapRef.current) {
+      // หน่วงเวลาให้ CSS ทำงานเสร็จ 0.3 วินาที แล้วค่อยสั่งคำนวณใหม่
+      setTimeout(() => {
+        mapRef.current.invalidateSize();
+      }, 300);
+    }
+  }, [selectedVehicle]);
+
+  // 3. วาดเส้นทาง
+  useEffect(() => {
+    if (!mapRef.current || !LRef.current || routesDrawnRef.current || routes.length === 0) return;
     const L = LRef.current;
     const map = mapRef.current;
     
-    // วาดเส้นทาง
-    if (routes.length > 0 && !routesDrawnRef.current) {
-      routes.forEach((route) => {
-        if (route.path_coordinates) {
-           let geoData = route.path_coordinates;
-           if(typeof geoData === 'string'){
-              try { geoData = JSON.parse(geoData); } 
-              catch(e){ console.error("Error parsing GeoJSON", e); }
-           }
+    routes.forEach((route) => {
+      if (route.path_coordinates) {
+         let geoData = route.path_coordinates;
+         if(typeof geoData === 'string'){
+            try { geoData = JSON.parse(geoData); } 
+            catch(e){}
+         }
 
-          L.geoJSON(geoData, {
-            style: function () {
-              return { color: route.color || '#4B0082', weight: 5, opacity: 0.8 };
-            },
-            pointToLayer: function (feature: any, latlng: any) {
-              return L.circleMarker(latlng, { radius: 6, fillColor: '#8A2BE2', color: '#ffffff', weight: 2, fillOpacity: 1 });
-            }
-          }).addTo(map);
-        }
-      });
-      routesDrawnRef.current = true;
-    }
+        L.geoJSON(geoData, {
+          style: function () {
+            return { color: route.color || '#4B0082', weight: 5, opacity: 0.8 };
+          },
+          pointToLayer: function (feature: any, latlng: any) {
+            return L.circleMarker(latlng, { radius: 6, fillColor: '#8A2BE2', color: '#ffffff', weight: 2, fillOpacity: 1 });
+          }
+        }).addTo(map);
+      }
+    });
+    routesDrawnRef.current = true;
+  }, [routes]);
 
-    // วาดป้ายจอดรถ
-    if (stops.length > 0 && !stopsDrawnRef.current) {
-      stops.forEach((stop) => {
-        if (stop.latitude && stop.longitude && stop.latitude !== 0) {
-          const customStopIcon = L.divIcon({
-            className: "custom-stop-marker",
-            html: `<div style="background-color: white; border: 3px solid #3B82F6; border-radius: 50%; width: 50px; height: 50px; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 10px; color: #1E3A8A; box-shadow: 0px 3px 6px rgba(0,0,0,0.3); text-align: center; line-height: 1.1; padding: 2px;">${stop.name}</div>`,
-            iconSize: [50, 50],
-            iconAnchor: [25, 25], 
-          });
+  // 3.5 วาดป้ายจอดรถ
+  useEffect(() => {
+    if (!mapRef.current || !LRef.current || stopsDrawnRef.current || stops.length === 0) return;
+    const L = LRef.current;
+    const map = mapRef.current;
 
-          L.marker([stop.latitude, stop.longitude], { icon: customStopIcon })
-            .addTo(map)
-            .bindPopup(`<b>${stop.name}</b><br/>Code: ${stop.code}`);
-        }
-      });
-      stopsDrawnRef.current = true;
-    }
-  }, [stops, routes]);
+    stops.forEach((stop) => {
+      if (stop.latitude && stop.longitude && stop.latitude !== 0) {
+        const customStopIcon = L.divIcon({
+          className: "custom-stop-marker",
+          html: `<div style="background-color: white; border: 3px solid #3B82F6; border-radius: 50%; width: 50px; height: 50px; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 10px; color: #1E3A8A; box-shadow: 0px 3px 6px rgba(0,0,0,0.3); text-align: center; line-height: 1.1; padding: 2px;">${stop.name}</div>`,
+          iconSize: [50, 50],
+          iconAnchor: [25, 25], 
+        });
+
+        L.marker([stop.latitude, stop.longitude], { icon: customStopIcon })
+          .addTo(map)
+          .bindPopup(`<b>${stop.name}</b><br/>Code: ${stop.code}`);
+      }
+    });
+    stopsDrawnRef.current = true;
+  }, [stops]);
 
   // 4. อัปเดตตำแหน่งหมุดเมื่อ GPS ขยับ
   useEffect(() => {
@@ -130,13 +140,12 @@ export default function TrackerPage() {
     }
   }, [coords, isTracking]);
 
-  // 5. ระบบส่งพิกัด (ใช้ selectedVehicle.id ในการอัปเดต)
+  // 5. ระบบส่งพิกัด
   const startTracking = () => {
     if (!navigator.geolocation) {
       alert("อุปกรณ์นี้ไม่รองรับการระบุตำแหน่ง");
       return;
     }
-
     if (!selectedVehicle) {
       alert("กรุณาเลือกรถก่อนเริ่มส่งพิกัด");
       return;
@@ -152,7 +161,6 @@ export default function TrackerPage() {
         setSyncStatus("สัญญาณ GPS อัปเดต กำลังส่งเข้าฐานข้อมูล...");
 
         try {
-          // *** ใช้ selectedVehicle.id เพื่อส่งพิกัดให้ตรงคัน ***
           const { data, error } = await supabase
             .from("vehicles")
             .update({ latitude: latitude, longitude: longitude })
@@ -188,7 +196,6 @@ export default function TrackerPage() {
     setSyncStatus("🛑 หยุดการทำงานชั่วคราว");
   };
 
-  // ฟังก์ชันเปลี่ยนรถ
   const handleChangeVehicle = () => {
     stopTracking();
     setSelectedVehicle(null);
@@ -197,9 +204,6 @@ export default function TrackerPage() {
 
   return (
     <>
-      {/* -------------------------------------------------------------
-          หน้าต่างเลือกรถ (แสดงทับแผนที่เมื่อยังไม่ได้เลือกรถ)
-      ------------------------------------------------------------- */}
       {!selectedVehicle && (
         <div className="fixed inset-0 z-[100] bg-gray-50 flex flex-col items-center justify-center p-4">
           <div className="max-w-2xl w-full">
@@ -232,9 +236,6 @@ export default function TrackerPage() {
         </div>
       )}
 
-      {/* -------------------------------------------------------------
-          หน้าจอแผนที่และปุ่มควบคุม (ซ่อนตัวอยู่ถ้ายังไม่เลือกรถ)
-      ------------------------------------------------------------- */}
       <div className={`flex flex-col h-full bg-gray-50 p-2 md:p-4 gap-4 ${!selectedVehicle ? 'opacity-0 pointer-events-none absolute' : 'opacity-100 static'}`}>
         
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 w-full">
